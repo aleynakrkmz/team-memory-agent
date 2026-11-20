@@ -35,13 +35,28 @@ ssh -T git@github.com
 İlk seferde "Are you sure you want to continue connecting?" diye sorarsa `yes` yaz. `Hi <kullanıcı-adın>! You've successfully authenticated` görürsen tamam.
 
 ### 3. uv (Python ve paket yöneticisi)
+**Bu adım neden gerekli?**
+Projeyi çalıştırmak için Python 3.12 ve bazı paketler (`ollama`, `pydantic`, `rank-bm25`, `pytest` …) gerekiyor. Bunları elle kurarsak herkesin bilgisayarında farklı sürümler olur ve "bende çalışıyor, sende çalışmıyor" sorunları başlar. **uv** bu işi bizim yerimize yapan bir araç:
+- Projenin istediği Python sürümünü (3.12) **kendisi indirir**. Bilgisayarında başka bir Python varsa ona dokunmaz, onu bozmaz.
+- Paketleri repodaki `uv.lock` dosyasına göre **herkese birebir aynı sürümle** kurar.
+- Paketleri bilgisayarın geneline değil, sadece proje klasöründeki `.venv` klasörüne kurar.
+
+Yani uv'yi bir kez kurarsın; sonra her şey 4. adımdaki tek bir `uv sync` komutuyla olur.
+
+**Ne yapacaksın?**
+Aşağıdaki komut uv'nin resmi sitesinden (astral.sh) kurulum betiğini indirip çalıştırır. Yönetici şifresi istemez, sadece senin kullanıcı klasörüne kurulur:
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-Bittikten sonra **Terminal'i kapatıp yeniden aç**, sonra kontrol et:
+Birkaç saniye içinde `everything's installed!` gibi bir mesaj görürsün.
+
+Sonra **Terminal'i tamamen kapatıp yeniden aç** (yeni kurulan `uv` komutunu Terminal ancak yeniden açılınca tanır) ve kontrol et:
 ```bash
 uv --version
 ```
+`uv 0.x.x` gibi bir sürüm numarası görüyorsan tamam, 4. adıma geç.
+
+> `uv: command not found` görürsen: Terminal'i kapatıp açmayı unutmuş olabilirsin. Hâlâ olmuyorsa şu komutu çalıştırıp tekrar dene: `source $HOME/.local/bin/env`
 
 ### 4. Projeyi indir ve kur
 ```bash
@@ -94,13 +109,28 @@ ssh -T git@github.com
 İlk seferde soru sorarsa `yes` yaz. `Hi <kullanıcı-adın>! You've successfully authenticated` görürsen tamam.
 
 ### 3. uv (Python ve paket yöneticisi)
+**Bu adım neden gerekli?**
+Projeyi çalıştırmak için Python 3.12 ve bazı paketler (`ollama`, `pydantic`, `rank-bm25`, `pytest` …) gerekiyor. Bunları elle kurarsak herkesin bilgisayarında farklı sürümler olur ve "bende çalışıyor, sende çalışmıyor" sorunları başlar. **uv** bu işi bizim yerimize yapan bir araç:
+- Projenin istediği Python sürümünü (3.12) **kendisi indirir**. Bilgisayarında başka bir Python varsa ona dokunmaz, onu bozmaz.
+- Paketleri repodaki `uv.lock` dosyasına göre **herkese birebir aynı sürümle** kurar.
+- Paketleri bilgisayarın geneline değil, sadece proje klasöründeki `.venv` klasörüne kurar.
+
+Yani uv'yi bir kez kurarsın; sonra her şey 4. adımdaki tek bir `uv sync` komutuyla olur.
+
+**Ne yapacaksın?**
+Aşağıdaki komut uv'nin resmi sitesinden (astral.sh) kurulum betiğini indirip çalıştırır. Yönetici yetkisi istemez, sadece senin kullanıcı klasörüne kurulur. (`-ExecutionPolicy ByPass` kısmı, Windows'un bu tek kurulum betiğini çalıştırmasına izin verir; sistem ayarını kalıcı olarak değiştirmez.)
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
-Bittikten sonra **PowerShell'i kapatıp yeniden aç**, sonra kontrol et:
+Birkaç saniye içinde `everything's installed!` gibi bir mesaj görürsün.
+
+Sonra **PowerShell'i tamamen kapatıp yeniden aç** (yeni kurulan `uv` komutunu PowerShell ancak yeniden açılınca tanır) ve kontrol et:
 ```powershell
 uv --version
 ```
+`uv 0.x.x` gibi bir sürüm numarası görüyorsan tamam, 4. adıma geç.
+
+> `uv is not recognized` görürsen: PowerShell'i kapatıp açmayı unutmuş olabilirsin. Hâlâ olmuyorsa bilgisayarı yeniden başlatıp tekrar dene.
 
 ### 4. Projeyi indir ve kur
 ```powershell
