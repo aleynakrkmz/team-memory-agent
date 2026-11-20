@@ -33,7 +33,10 @@ Keeps a small team's task list correct across meetings: proposes task changes fr
 
 ## Setup
 
+See [KURULUM.md](KURULUM.md) (setup, Mac and Windows) and [CALISMA_DUZENI.md](CALISMA_DUZENI.md) (branch and pull-request workflow).
+
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+uv sync
 cp .env.example .env
+uv run pytest
 ```

@@ -1,0 +1,23 @@
+[project]
+name = "team-memory-agent"
+version = "0.1.0"
+description = "IS 773 Agentic AI - Team Memory Agent (Second Brain)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "ollama",
+    "pydantic",
+    "python-dotenv",
+    "rank-bm25",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
