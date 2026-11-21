@@ -1,12 +1,12 @@
-"""Shared code for the Team Memory Agent data notebooks.
+"""Shared code for the Team Memory Agent data generation.
 
 Used by:
-  datagen/demo_data.ipynb        - writes the hand-written demo project (samples/demo/)
-  datagen/datagen_pipeline.ipynb - generates the development and test data for the evaluation
-  model_selection.ipynb          - tests candidate models (Colab)
+  datagen/demo_data.py     - writes the hand-written demo project (samples/demo/)
+  eval/model_selection.py  - tests candidate models (generation test and answer-key check)
+  The script that generates the development and test data will use it too (not written yet).
 
 Everything here follows Section 6.1 of the system design document. Keeping it in one file means
-the three notebooks always use the same file format, the same labels and the same checks.
+every script uses the same file format, the same labels and the same checks.
 """
 import csv
 import datetime as dt
