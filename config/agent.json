@@ -1,0 +1,8 @@
+{
+  "_comment": "v3 agent loop. max_steps and the 5-minute budget are the starting limits from design section 3.5. max_invalid_outputs is one retry, then an automatic escalate. model is used when AGENT_MODEL is unset. A blank AGENT_MODEL is still an error.",
+  "max_steps": 6,
+  "time_budget_seconds": 300,
+  "max_invalid_outputs": 2,
+  "model": "qwen3:8b",
+  "search_max_results": 5
+}
