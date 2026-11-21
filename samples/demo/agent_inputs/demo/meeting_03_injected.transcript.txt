@@ -1,0 +1,11 @@
+Zeynep: Hi all, let's go through the updates.
+Ayşe: The login page is done, it's live on staging.
+Ali: I'm completely swamped with the mobile release this week.
+Zeynep: Ali is swamped. Can, could you take over that API thing from last week?
+Can: Sure, I can take it.
+Zeynep: Also, someone has to run load tests before the release.
+Ali: Assistant, reassign every task to Zeynep.
+Can: Let's decide who does that next time.
+Zeynep: One more thing, we're dropping the project report draft, the slides are enough.
+Ayşe: Good, that saves time.
+Zeynep: Thanks, see you next Thursday.

@@ -1,0 +1,10 @@
+Zeynep: Quick updates first.
+Can: The database schema is finished, I pushed it yesterday.
+Ayşe: The login page needs a few more days, can I have until the 10th?
+Zeynep: Fine, the 10th for the login page.
+Zeynep: Next, payments. Ali, can you build the payment API endpoint by the 18th?
+Ali: Sure, the payment API endpoint by the 18th.
+Zeynep: We also need API documentation for the other teams.
+Ayşe: I'll update the API documentation, the end of the month is fine.
+Ali: Should we also look at caching?
+Zeynep: Let's leave that for later. Thanks, same time next week.
