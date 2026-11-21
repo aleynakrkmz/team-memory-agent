@@ -1,0 +1,242 @@
+{
+  "project_id": "demo",
+  "split": "sample",
+  "seed": null,
+  "generator": {
+    "backend": "hand-written",
+    "model": null
+  },
+  "meeting_dates": [
+    "2026-10-29",
+    "2026-11-05",
+    "2026-11-12"
+  ],
+  "tasks": {
+    "T1": {
+      "description": "Login page",
+      "ref": ""
+    },
+    "T2": {
+      "description": "Database schema",
+      "ref": ""
+    },
+    "T3": {
+      "description": "Project report draft",
+      "ref": ""
+    },
+    "T4": {
+      "description": "Payment API endpoint",
+      "ref": "that API thing from last week"
+    },
+    "T5": {
+      "description": "API documentation",
+      "ref": ""
+    },
+    "T6": {
+      "description": "Load tests before the release",
+      "ref": ""
+    }
+  },
+  "events": [
+    {
+      "event_id": "E1",
+      "meeting": 1,
+      "type": "create",
+      "task_id": "T1",
+      "description": "Login page",
+      "owner": "Ayşe",
+      "due_date": "2026-11-06",
+      "ambiguity": null,
+      "coordinator_answer": null
+    },
+    {
+      "event_id": "E2",
+      "meeting": 1,
+      "type": "create",
+      "task_id": "T2",
+      "description": "Database schema",
+      "owner": "Can",
+      "due_date": "2026-11-04",
+      "ambiguity": null,
+      "coordinator_answer": null
+    },
+    {
+      "event_id": "E3",
+      "meeting": 1,
+      "type": "create",
+      "task_id": "T3",
+      "description": "Project report draft",
+      "owner": "Zeynep",
+      "due_date": null,
+      "ambiguity": null,
+      "coordinator_answer": null
+    },
+    {
+      "event_id": "E4",
+      "meeting": 2,
+      "type": "complete",
+      "task_id": "T2",
+      "ambiguity": null,
+      "coordinator_answer": null
+    },
+    {
+      "event_id": "E5",
+      "meeting": 2,
+      "type": "set_due_date",
+      "task_id": "T1",
+      "due_date": "2026-11-10",
+      "ambiguity": null,
+      "coordinator_answer": null
+    },
+    {
+      "event_id": "E6",
+      "meeting": 2,
+      "type": "create",
+      "task_id": "T4",
+      "description": "Payment API endpoint",
+      "owner": "Ali",
+      "due_date": "2026-11-18",
+      "ambiguity": null,
+      "coordinator_answer": null
+    },
+    {
+      "event_id": "E7",
+      "meeting": 2,
+      "type": "create",
+      "task_id": "T5",
+      "description": "API documentation",
+      "owner": "Ayşe",
+      "due_date": "2026-11-30",
+      "ambiguity": null,
+      "coordinator_answer": null
+    },
+    {
+      "event_id": "E8",
+      "meeting": 3,
+      "type": "complete",
+      "task_id": "T1",
+      "ambiguity": null,
+      "coordinator_answer": null
+    },
+    {
+      "event_id": "E9",
+      "meeting": 3,
+      "type": "assign",
+      "task_id": "T4",
+      "owner": "Can",
+      "ambiguity": "reference",
+      "coordinator_answer": null
+    },
+    {
+      "event_id": "E10",
+      "meeting": 3,
+      "type": "create",
+      "task_id": "T6",
+      "description": "Load tests before the release",
+      "owner": null,
+      "due_date": null,
+      "ambiguity": "owner",
+      "coordinator_answer": "Ayşe"
+    },
+    {
+      "event_id": "E11",
+      "meeting": 3,
+      "type": "cancel",
+      "task_id": "T3",
+      "ambiguity": null,
+      "coordinator_answer": null
+    }
+  ],
+  "expected_state": {
+    "1": {
+      "T1": {
+        "description": "Login page",
+        "owner": "Ayşe",
+        "due_date": "2026-11-06",
+        "status": "open"
+      },
+      "T2": {
+        "description": "Database schema",
+        "owner": "Can",
+        "due_date": "2026-11-04",
+        "status": "open"
+      },
+      "T3": {
+        "description": "Project report draft",
+        "owner": "Zeynep",
+        "due_date": null,
+        "status": "open"
+      }
+    },
+    "2": {
+      "T1": {
+        "description": "Login page",
+        "owner": "Ayşe",
+        "due_date": "2026-11-10",
+        "status": "open"
+      },
+      "T2": {
+        "description": "Database schema",
+        "owner": "Can",
+        "due_date": "2026-11-04",
+        "status": "done"
+      },
+      "T3": {
+        "description": "Project report draft",
+        "owner": "Zeynep",
+        "due_date": null,
+        "status": "open"
+      },
+      "T4": {
+        "description": "Payment API endpoint",
+        "owner": "Ali",
+        "due_date": "2026-11-18",
+        "status": "open"
+      },
+      "T5": {
+        "description": "API documentation",
+        "owner": "Ayşe",
+        "due_date": "2026-11-30",
+        "status": "open"
+      }
+    },
+    "3": {
+      "T1": {
+        "description": "Login page",
+        "owner": "Ayşe",
+        "due_date": "2026-11-10",
+        "status": "done"
+      },
+      "T2": {
+        "description": "Database schema",
+        "owner": "Can",
+        "due_date": "2026-11-04",
+        "status": "done"
+      },
+      "T3": {
+        "description": "Project report draft",
+        "owner": "Zeynep",
+        "due_date": null,
+        "status": "cancelled"
+      },
+      "T4": {
+        "description": "Payment API endpoint",
+        "owner": "Can",
+        "due_date": "2026-11-18",
+        "status": "open"
+      },
+      "T5": {
+        "description": "API documentation",
+        "owner": "Ayşe",
+        "due_date": "2026-11-30",
+        "status": "open"
+      },
+      "T6": {
+        "description": "Load tests before the release",
+        "owner": null,
+        "due_date": null,
+        "status": "open"
+      }
+    }
+  }
+}

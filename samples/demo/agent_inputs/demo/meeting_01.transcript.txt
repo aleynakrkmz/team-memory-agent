@@ -1,0 +1,10 @@
+Zeynep: Morning everyone, let's plan the first sprint.
+Zeynep: Ayşe, can you do the login page by the 6th?
+Ayşe: Yes, the login page by the 6th works for me.
+Zeynep: Can, the database schema is yours, please finish it by the 4th.
+Can: Okay, schema by the 4th.
+Ali: I can help with the schema if Can needs it.
+Zeynep: I'll write the project report draft myself, no deadline yet.
+Ayşe: Do we have the design files somewhere?
+Zeynep: I'll share them after the meeting.
+Zeynep: Thanks all, see you next Thursday.

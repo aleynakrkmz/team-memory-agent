@@ -1,0 +1,28 @@
+{
+  "project_id": "demo",
+  "coordinator": "Zeynep",
+  "members": [
+    {
+      "name": "Ali",
+      "role": "backend",
+      "aliases": []
+    },
+    {
+      "name": "Ayşe",
+      "role": "frontend",
+      "aliases": [
+        "Ayse"
+      ]
+    },
+    {
+      "name": "Can",
+      "role": "backend",
+      "aliases": []
+    },
+    {
+      "name": "Zeynep",
+      "role": "coordinator",
+      "aliases": []
+    }
+  ]
+}
