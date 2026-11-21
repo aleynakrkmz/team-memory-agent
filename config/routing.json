@@ -1,0 +1,5 @@
+{
+  "_comment": "Starting values from design section 3.2. Tune on the development set and freeze with the system. bm25_margin is the minimum top/second score ratio for a unique task match.",
+  "bm25_tau": 0.5,
+  "bm25_margin": 1.5
+}
