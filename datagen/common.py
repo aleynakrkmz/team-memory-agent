@@ -202,9 +202,14 @@ def auto_check(team, scenario, meeting_no, lines, checker=None):
     # (iv) A second model reads the meeting and lists every change it finds.
     #      A change that is not in the scenario means the generator invented something extra,
     #      which would make the answer key incomplete.
+    #      A change that only repeats the task list as it already was (a recap such as
+    #      "so Elif has the checklist") is not new and is not counted.
     if checker is not None:
+        before = scenario.get("expected_state", {}).get(str(meeting_no - 1), {})
         for ch in checker("\n".join(f"{s}: {t}" for s, t in transcript)):
-            if not _matches_scripted(ch, events, scenario):
+            if not isinstance(ch, dict) or ch.get("type") == "unparsable_checker_output":
+                problems.append(("checker_unparsable", None, json.dumps(ch, ensure_ascii=False)[:200]))
+            elif not (_matches_scripted(ch, events, scenario) or _is_recap(ch, before)):
                 problems.append(("unscripted_change", None, json.dumps(ch, ensure_ascii=False)))
     return problems
 
@@ -213,12 +218,32 @@ STOP = {"the", "a", "an", "for", "of", "to", "and", "on", "in", "with", "from", 
 def _words(s):
     return {w for w in re.findall(r"[a-zçğıöşü]+", (s or "").lower()) if w not in STOP}
 
+# "create", "assign" and "set_due_date" all set fields of a task; a checker often names a new task with
+# an owner "assign" instead of "create", so these three types count as the same kind of change.
+SETS = {"create", "assign", "set_due_date"}
+def _kind(t):
+    return "set" if t in SETS else t
+
 def _matches_scripted(change, events, scenario):
+    """Is this change one of the planned events of the meeting (same kind of change, same task)?"""
     for e in events:
-        if e["type"] != change.get("type"):
+        if _kind(e["type"]) != _kind(change.get("type")):
             continue
         desc = scenario["tasks"][e["task_id"]]["description"] + " " + scenario["tasks"][e["task_id"]].get("ref", "")
         if _words(desc) & _words(change.get("task")):
+            return True
+    return False
+
+def _is_recap(change, before):
+    """Does this change only repeat what the task list already said before the meeting?
+    Example: Elif already owns "Release checklist"; "assign Release checklist to Elif" is a recap, not a new change."""
+    for t in before.values():
+        if not (_words(t["description"]) & _words(change.get("task"))):
+            continue
+        kind, owner = _kind(change.get("type")), change.get("owner")
+        if kind == "set" and t["status"] == "open" and (not owner or owner == t["owner"]):
+            return True
+        if (kind, t["status"]) in (("complete", "done"), ("cancel", "cancelled")):
             return True
     return False
 

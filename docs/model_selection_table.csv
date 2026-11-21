@@ -1,0 +1,8 @@
+role,model,family,version (digest),task,reasoning depth,privacy,latency,cost,local/free,fallback
+"agent (extraction, agent loop, B2)",qwen3:8b,Qwen (Alibaba),500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41,find task changes; choose tools step by step,medium: several tool steps,local (Ollama); no data leaves the machine,7.0 s per extraction; 45.3 s for a ~20k-token B2 prompt,0 (local),yes: free Colab T4 or laptop,mistral-nemo:12b
+generator A (development data),mistral-nemo:12b,Mistral (Mistral AI),e7e06d107c6c86ed0cf45445f1790720b5092149c4c95f4d965844e9afbfdc89,write development meetings from a scenario,low: follows a script,local (Ollama); no data leaves the machine,54.6 s per meeting,0 (local),yes: free Colab T4 or laptop,gemma3:12b
+generator B (test data),gemma3:12b,Gemma (Google),b92b218582c521ba287f38f1d6057dcd3c6cbff036f13cac97b5d861f5e58ec3,write test meetings from a scenario,low: follows a script,local (Ollama); no data leaves the machine,79.8 s per meeting,0 (local),yes: free Colab T4 or laptop,llama3.1:8b
+checker (answer-key check iv),llama3.1:8b,Llama (Meta),46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e,list the changes in a generated meeting,low,local (Ollama); no data leaves the machine,8.2 s per meeting,0 (local),yes: free Colab T4 or laptop,granite3.3:8b
+speech-to-text,faster-whisper (size to be chosen),,,audio to transcript,,local,,0,yes (CPU),Parakeet TDT 0.6B v2 on a free Colab GPU (stretch 1)
+retrieval comparison,nomic-embed-text v1.5,,,compared with BM25 on the development set only,,local,,0,yes,BM25 only
+text-to-speech (held-out audio),Kokoro-82M,,,audio of the held-out synthetic projects,,local,,0,yes,transcript condition only

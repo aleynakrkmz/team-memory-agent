@@ -20,3 +20,7 @@ data/*
 .DS_Store
 .vscode/
 .idea/
+
+# Generated data and model selection outputs
+datagen/out/
+eval/model_selection_results/
