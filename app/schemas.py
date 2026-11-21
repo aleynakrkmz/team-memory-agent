@@ -1,7 +1,7 @@
 """Shared records for the meeting pipeline.
 
-These models are the contract between extract, match, route, and the
-validate / review / commit steps. Names follow design v3 (`description`,
+These models are the contract between extract, match, route, the agent, and
+the validate / review / commit steps. Names follow design v3 (`description`,
 `owner`, `evidence_refs`). They are a proposal for the team: agree them
 before the other workstreams depend on the field names.
 
@@ -281,8 +281,79 @@ class RoutingDecision(ApiModel):
         return self
 
 
+class AgentOutcome(str, Enum):
+    """How a hard case ended. Only these three stop the loop."""
+
+    propose_update = "propose_update"
+    abstain = "abstain"
+    escalate = "escalate"
+
+
+class AgentStep(ApiModel):
+    """One model reply. `observation` is tool data or the reason a reply was refused.
+
+    `raw_output` is kept for debugging. The next prompt does not paste it back
+    into the conversation as instructions.
+    """
+
+    step: int = Field(ge=1)
+    tool: str | None = None
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    valid: bool
+    observation: str
+    raw_output: str = ""
+
+
+class AgentTrace(ApiModel):
+    """The steps taken for one hard case, in order."""
+
+    candidate_index: int = Field(ge=0)
+    steps: list[AgentStep]
+    outcome: AgentOutcome
+    reason: str | None = None
+    elapsed_seconds: float = Field(ge=0)
+
+
+class AgentDecision(ApiModel):
+    """The agent's result for one hard case. `proposal` is not a write.
+
+    `automatic` is true when the loop stopped because of the step limit, the
+    time budget, or repeated invalid output. The model did not choose that stop.
+    """
+
+    candidate_index: int = Field(ge=0)
+    outcome: AgentOutcome
+    proposal: ProposedUpdate | None = None
+    reason: str | None = None
+    trace: AgentTrace
+    automatic: bool = False
+
+    @model_validator(mode="after")
+    def outcome_matches_the_body(self) -> "AgentDecision":
+        if self.trace.candidate_index != self.candidate_index:
+            raise ValueError("trace candidate_index must match the decision")
+        if self.trace.outcome != self.outcome or self.trace.reason != self.reason:
+            raise ValueError("trace outcome and reason must match the decision")
+        if self.outcome == AgentOutcome.propose_update:
+            if self.proposal is None:
+                raise ValueError("propose_update needs a proposal")
+            if self.automatic:
+                raise ValueError("a proposal is not an automatic stop")
+        elif self.proposal is not None:
+            raise ValueError("abstain and escalate have no proposal")
+        elif not self.reason or not self.reason.strip():
+            raise ValueError("abstain and escalate need a reason")
+        if self.automatic and self.outcome != AgentOutcome.escalate:
+            raise ValueError("only an escalation can be automatic")
+        return self
+
+
 class MeetingPreview(ApiModel):
-    """Extract, match and route for one meeting. Nothing here has been approved."""
+    """Extract, match, route, and the agent for one meeting. Nothing is approved.
+
+    `decisions` keeps the route result. A hard decision still has no proposal.
+    The agent writes its proposal on `agent_decisions` and into `proposals`.
+    """
 
     project_id: str
     meeting_no: int = Field(ge=1)
@@ -290,3 +361,8 @@ class MeetingPreview(ApiModel):
     candidates: list[CandidateChange]
     matches: list[MatchResult]
     decisions: list[RoutingDecision]
+    proposals: list[ProposedUpdate] = Field(
+        default_factory=list,
+        description="Clear-path proposals plus agent proposals, in candidate order.",
+    )
+    agent_decisions: list[AgentDecision] = Field(default_factory=list)
