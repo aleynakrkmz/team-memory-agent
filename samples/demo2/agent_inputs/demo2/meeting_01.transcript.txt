@@ -1,0 +1,10 @@
+Leyla: Hi everyone, let's plan the new sprint.
+Leyla: Defne, can you build the checkout page by Friday?
+Defne: Yes, the checkout page by Friday is fine.
+Leyla: Okan, please take the customer export, by the 10th.
+Okan: Okay, customer export by the 10th.
+Baran: Is the staging server back up?
+Okan: Yes, since this morning.
+Leyla: Baran, you'll prepare the usage report, no deadline for now.
+Baran: Sure, I'll start the usage report.
+Leyla: Great, see you next Tuesday.

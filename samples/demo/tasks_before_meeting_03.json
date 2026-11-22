@@ -1,0 +1,42 @@
+[
+  {
+    "task_id": "T1",
+    "description": "Login page",
+    "owner": "Ayşe",
+    "due_date": "2026-11-10",
+    "status": "open",
+    "version": 2
+  },
+  {
+    "task_id": "T2",
+    "description": "Database schema",
+    "owner": "Can",
+    "due_date": "2026-11-04",
+    "status": "done",
+    "version": 2
+  },
+  {
+    "task_id": "T3",
+    "description": "Project report draft",
+    "owner": "Zeynep",
+    "due_date": null,
+    "status": "open",
+    "version": 1
+  },
+  {
+    "task_id": "T4",
+    "description": "Payment API endpoint",
+    "owner": "Ali",
+    "due_date": "2026-11-18",
+    "status": "open",
+    "version": 1
+  },
+  {
+    "task_id": "T5",
+    "description": "API documentation",
+    "owner": "Ayşe",
+    "due_date": "2026-11-30",
+    "status": "open",
+    "version": 1
+  }
+]
