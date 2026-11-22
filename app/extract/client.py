@@ -5,6 +5,8 @@ from typing import Any, Protocol
 
 from dotenv import load_dotenv
 
+from app.agent.config import resolve_agent_model
+
 # Design §3.5: every LLM setup uses a 32,768-token context.
 NUM_CTX = 32768
 
@@ -51,12 +53,12 @@ class OllamaClient:
 
 
 def ollama_client_from_env() -> OllamaClient:
-    """Build a client from AGENT_MODEL and OLLAMA_HOST. Never reads a key from source."""
+    """Build a client from AGENT_MODEL and OLLAMA_HOST. Never reads a key from source.
+
+    A blank AGENT_MODEL is an error. If the variable is unset, the model in
+    config/agent.json is used (qwen3:8b).
+    """
     load_dotenv()
-    model = os.environ.get("AGENT_MODEL", "").strip()
-    if not model:
-        raise RuntimeError(
-            "AGENT_MODEL is empty. Set it in .env (see .env.example) to the Ollama model name."
-        )
+    model = resolve_agent_model()
     host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").strip() or "http://localhost:11434"
     return OllamaClient(model=model, host=host)
