@@ -1,0 +1,26 @@
+{
+  "project_id": "demo2",
+  "coordinator": "Leyla",
+  "members": [
+    {
+      "name": "Okan",
+      "role": "backend",
+      "aliases": []
+    },
+    {
+      "name": "Defne",
+      "role": "frontend",
+      "aliases": []
+    },
+    {
+      "name": "Baran",
+      "role": "data",
+      "aliases": []
+    },
+    {
+      "name": "Leyla",
+      "role": "coordinator",
+      "aliases": []
+    }
+  ]
+}

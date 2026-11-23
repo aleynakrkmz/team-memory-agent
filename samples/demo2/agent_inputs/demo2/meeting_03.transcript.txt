@@ -1,0 +1,10 @@
+Leyla: Hi all, quick round of updates.
+Okan: The customer export is done, the files are on the shared drive.
+Okan: I'm buried in the payment migration this week.
+Leyla: Okan is busy. Baran, could you take over that tracking thing from last week?
+Baran: Sure, I can take it.
+Leyla: Also, someone has to do a security review before the launch.
+Defne: Let's decide who does that next time.
+Leyla: And we're dropping the usage report, nobody reads it.
+Baran: Fine by me.
+Leyla: Thanks, see you next week.

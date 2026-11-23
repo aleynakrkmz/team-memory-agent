@@ -1,0 +1,10 @@
+Leyla: Let's start with updates.
+Defne: The checkout page is finished and merged.
+Okan: The customer export needs a bit more time, can I have until Monday?
+Leyla: Okay, Monday for the customer export.
+Leyla: New item: we need event tracking for the launch. Okan, can you set up the event tracking by the 18th?
+Okan: Sure, event tracking setup by the 18th.
+Leyla: We also need a tracking privacy notice on the website.
+Defne: I'll write the tracking privacy notice, the end of the month works.
+Baran: Do we still need the old dashboards?
+Leyla: Let's talk about that later. Thanks, everyone.

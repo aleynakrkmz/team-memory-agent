@@ -1,0 +1,42 @@
+[
+  {
+    "task_id": "T1",
+    "description": "Checkout page",
+    "owner": "Defne",
+    "due_date": "2026-12-04",
+    "status": "done",
+    "version": 2
+  },
+  {
+    "task_id": "T2",
+    "description": "Customer export",
+    "owner": "Okan",
+    "due_date": "2026-12-14",
+    "status": "open",
+    "version": 2
+  },
+  {
+    "task_id": "T3",
+    "description": "Usage report",
+    "owner": "Baran",
+    "due_date": null,
+    "status": "open",
+    "version": 1
+  },
+  {
+    "task_id": "T4",
+    "description": "Event tracking setup",
+    "owner": "Okan",
+    "due_date": "2026-12-18",
+    "status": "open",
+    "version": 1
+  },
+  {
+    "task_id": "T5",
+    "description": "Tracking privacy notice",
+    "owner": "Defne",
+    "due_date": "2026-12-31",
+    "status": "open",
+    "version": 1
+  }
+]
