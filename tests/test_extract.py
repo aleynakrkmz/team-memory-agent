@@ -5,6 +5,8 @@ from datetime import date
 
 import pytest
 
+from ollama._types import ChatRequest
+
 from app.extract import ExtractionError, extract_candidates
 from app.extract.client import NUM_CTX, OllamaClient, ollama_client_from_env
 from app.extract.extract import FENCE_END, PROMPT_PATH, render_user_message
@@ -154,3 +156,126 @@ def test_agent_model_must_be_set(monkeypatch):
     monkeypatch.setenv("AGENT_MODEL", "  ")
     with pytest.raises(RuntimeError, match="AGENT_MODEL"):
         ollama_client_from_env()
+
+
+def test_chat_payload_disables_thinking_caps_tokens_and_strips_think_tags():
+    seen = {}
+
+    def chat(**kwargs):
+        seen.update(kwargs)
+        return {"message": {"content": "<think>\nsecret reasoning\n</think>\n{\"candidates\": []}"}}
+
+    client = OllamaClient(model="demo-model", host="http://example.invalid", chat=chat)
+    text = client.complete_json(system="rules", user="data", json_schema={"type": "object"})
+
+    assert text == '{"candidates": []}'
+    assert "<think>" not in text
+    assert seen["think"] is False
+    assert seen["timeout"] == 120
+    assert seen["options"]["num_predict"] == 4096
+    payload = ChatRequest(
+        model=seen["model"],
+        messages=seen["messages"],
+        stream=False,
+        think=seen["think"],
+        format=seen["format"],
+        options=seen["options"],
+    ).model_dump(exclude_none=True)
+    assert payload["think"] is False
+    assert "think" not in payload["options"]
+
+
+def test_unclosed_think_tag_does_not_become_the_json_body():
+    def chat(**kwargs):
+        return {"message": {"content": "<think>still reasoning and never closes"}}
+
+    client = OllamaClient(model="demo-model", chat=chat)
+    assert client.complete_json(system="rules", user="data", json_schema={"type": "object"}) == ""
+
+
+def test_env_and_config_control_think_timeout_and_num_predict(monkeypatch):
+    from app.agent.config import AgentConfig
+
+    monkeypatch.setattr("app.extract.client.load_dotenv", lambda *args, **kwargs: False)
+    monkeypatch.setattr("app.agent.config.load_dotenv", lambda *args, **kwargs: False)
+    monkeypatch.delenv("OLLAMA_THINK", raising=False)
+    monkeypatch.delenv("OLLAMA_TIMEOUT_S", raising=False)
+    monkeypatch.delenv("OLLAMA_NUM_PREDICT", raising=False)
+    monkeypatch.setenv("AGENT_MODEL", "demo-model")
+    monkeypatch.setattr(
+        "app.extract.client.load_agent_config",
+        lambda: AgentConfig(think=True, ollama_timeout_seconds=90, num_predict=1000),
+    )
+    from_config = ollama_client_from_env()
+    assert from_config.think is True
+    assert from_config.timeout_seconds == 90
+    assert from_config.num_predict == 1000
+
+    monkeypatch.setenv("OLLAMA_THINK", "false")
+    monkeypatch.setenv("OLLAMA_TIMEOUT_S", "15")
+    monkeypatch.setenv("OLLAMA_NUM_PREDICT", "256")
+    overridden = ollama_client_from_env()
+    assert overridden.think is False
+    assert overridden.timeout_seconds == 15
+    assert overridden.num_predict == 256
+
+
+def test_think_tags_around_extraction_json_still_parse():
+    def chat(**kwargs):
+        assert kwargs["think"] is False
+        return {"message": {"content": "<think>\nplan\n</think>\n" + _meeting_one_payload()}}
+
+    meeting, _team = load_demo(1)
+    candidates = extract_candidates(meeting, OllamaClient(model="demo-model", chat=chat))
+    assert [item.description for item in candidates] == ["Login page", "Database schema", "Project report draft"]
+
+
+def test_real_client_uses_the_tighter_http_timeout(monkeypatch):
+    created = {}
+
+    class FakeClient:
+        def __init__(self, host, timeout=None, **kwargs):
+            created["host"] = host
+            created["timeout"] = timeout
+
+        def chat(self, **kwargs):
+            created["chat"] = kwargs
+            return {"message": {"content": "{}"}}
+
+    monkeypatch.setattr("ollama.Client", FakeClient)
+    client = OllamaClient(model="demo-model", host="http://example.invalid", timeout=12)
+    text = client.complete_json(system="rules", user="data", json_schema={"type": "object"}, timeout=5)
+    assert text == "{}"
+    assert created["host"] == "http://example.invalid"
+    assert created["timeout"] == 5
+    assert created["chat"]["think"] is False
+    assert "timeout" not in created["chat"]
+    client.complete_json(system="rules", user="data", json_schema={"type": "object"}, timeout=50)
+    assert created["timeout"] == 12
+
+
+def test_bad_think_setting_is_rejected(monkeypatch):
+    monkeypatch.setattr("app.extract.client.load_dotenv", lambda *args, **kwargs: False)
+    monkeypatch.setattr("app.agent.config.load_dotenv", lambda *args, **kwargs: False)
+    monkeypatch.setenv("AGENT_MODEL", "demo-model")
+    monkeypatch.setenv("OLLAMA_THINK", "maybe")
+    with pytest.raises(RuntimeError, match="OLLAMA_THINK"):
+        ollama_client_from_env()
+
+
+def test_http_timeout_raises_extraction_error_without_a_second_attempt():
+    import httpx
+
+    calls = {"n": 0}
+
+    def chat(**kwargs):
+        calls["n"] += 1
+        raise httpx.ReadTimeout("slow model")
+
+    meeting, _team = load_demo(1)
+    client = OllamaClient(model="demo-model", chat=chat, timeout=12)
+    with pytest.raises(ExtractionError, match="timed out") as caught:
+        extract_candidates(meeting, client)
+    assert calls["n"] == 1
+    assert caught.value.attempts == 1
+    assert "12" in str(caught.value)

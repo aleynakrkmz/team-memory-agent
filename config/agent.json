@@ -1,8 +1,11 @@
 {
-  "_comment": "v3 agent loop. max_steps and the 5-minute budget are the starting limits from design section 3.5. max_invalid_outputs is one retry, then an automatic escalate. model is used when AGENT_MODEL is unset. A blank AGENT_MODEL is still an error.",
+  "_comment": "v3 agent loop. max_steps and the 5-minute budget are the starting limits from design section 3.5. max_invalid_outputs is one retry, then an automatic escalate. model is used when AGENT_MODEL is unset. A blank AGENT_MODEL is still an error. think is false so qwen3 does not fill a JSON call with hidden reasoning (OLLAMA_THINK overrides it). ollama_timeout_seconds is the per-call HTTP limit in seconds (OLLAMA_TIMEOUT_S). num_predict caps tokens generated for one JSON call (OLLAMA_NUM_PREDICT).",
   "max_steps": 6,
   "time_budget_seconds": 300,
   "max_invalid_outputs": 2,
   "model": "qwen3:8b",
-  "search_max_results": 5
+  "search_max_results": 5,
+  "think": false,
+  "ollama_timeout_seconds": 120,
+  "num_predict": 4096
 }

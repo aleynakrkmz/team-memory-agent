@@ -169,6 +169,31 @@ def test_extraction_failure_stops_before_the_agent(capsys):
     assert captured.out == ""
 
 
+def test_cli_prints_stage_progress_on_stderr_and_keeps_stdout_json(tmp_path, capsys):
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps([task.model_dump(mode="json") for task in open_tasks_before(3)]),
+        encoding="utf-8",
+    )
+    code = main(
+        [str(ROOT / "samples" / "demo"), "--meeting", "3", "--tasks", str(tasks_path)],
+        client=FakeLLM(
+            [
+                _meeting_three_payload(),
+                json.dumps({"tool": "escalate", "reason": "progress check"}),
+            ]
+        ),
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    preview = json.loads(captured.out)
+    assert preview["meeting_no"] == 3
+    assert "extract..." in captured.err
+    assert "agent case 1/1 step 1..." in captured.err
+    assert "extract..." not in captured.out
+    assert "agent case" not in captured.out
+
+
 def test_application_code_does_not_open_answer_keys():
     app = ROOT / "app"
     for path in app.rglob("*.py"):

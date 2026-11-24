@@ -110,6 +110,30 @@ def test_config_uses_the_design_step_and_time_budget():
     assert config.model == "qwen3:8b"
 
 
+def test_config_defaults_keep_thinking_off_and_bound_each_call(tmp_path):
+    shipped = load_agent_config()
+    assert shipped.think is False
+    assert shipped.ollama_timeout_seconds == 120
+    assert shipped.num_predict == 4096
+    path = tmp_path / "agent.json"
+    path.write_text(
+        json.dumps(
+            {
+                "max_steps": 6,
+                "time_budget_seconds": 300,
+                "max_invalid_outputs": 2,
+                "model": "qwen3:8b",
+                "search_max_results": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+    older = load_agent_config(path)
+    assert older.think is False
+    assert older.ollama_timeout_seconds == 120
+    assert older.num_predict == 4096
+
+
 def test_unset_agent_model_defaults_to_qwen(monkeypatch):
     monkeypatch.delenv("AGENT_MODEL", raising=False)
     monkeypatch.setattr("app.agent.config.load_dotenv", lambda *args, **kwargs: False)
@@ -185,9 +209,9 @@ def test_time_budget_escalates_and_discards_the_late_reply():
     clock = ManualClock(0)
     inner = FakeLLM([_propose_api()])
 
-    def complete_json(*, system, user, json_schema):
+    def complete_json(*, system, user, json_schema, timeout=None):
         clock.now = 10_000
-        return inner.complete_json(system=system, user=user, json_schema=json_schema)
+        return inner.complete_json(system=system, user=user, json_schema=json_schema, timeout=timeout)
 
     config = load_agent_config().model_copy(update={"time_budget_seconds": 5})
     decision, _client, _route = _run(
@@ -355,6 +379,97 @@ def test_clarifications_file_round_trip(tmp_path):
     items = clarifications_from_file(path)
     assert items[0].answer == "Ayşe"
     assert items[0].meeting_no == 3
+
+
+def test_each_model_call_gets_the_time_still_left_in_the_budget():
+    # The case starts at t=0. The next read is the budget check, 40 seconds later.
+    reads = {"n": 0}
+
+    def clock() -> float:
+        reads["n"] += 1
+        return 0 if reads["n"] == 1 else 40
+
+    config = load_agent_config().model_copy(update={"time_budget_seconds": 100})
+    decision, client, _route = _run(
+        [_tool("abstain", reason="nobody agreed a change")],
+        config=config,
+        clock=clock,
+    )
+    assert decision.outcome == AgentOutcome.abstain
+    assert client.calls[0]["timeout"] == 60
+
+
+def test_model_timeout_is_a_failed_step_and_then_escalates():
+    import httpx
+
+    from app.extract.client import OllamaClient
+
+    calls = {"n": 0}
+
+    def chat(**kwargs):
+        calls["n"] += 1
+        raise httpx.ReadTimeout("slow model")
+
+    config = load_agent_config().model_copy(update={"max_invalid_outputs": 1, "time_budget_seconds": 300})
+    client = OllamaClient(model="demo-model", chat=chat, timeout=30)
+    decision, _client, _route = _run([], client=client, config=config, clock=ManualClock(0))
+    assert calls["n"] == 1
+    assert decision.outcome == AgentOutcome.escalate
+    assert decision.automatic is True
+    assert decision.proposal is None
+    assert "timed out" in (decision.reason or "")
+    assert "30" in (decision.reason or "")
+    assert len(decision.trace.steps) == 1
+    assert decision.trace.steps[0].valid is False
+    assert "timed out" in decision.trace.steps[0].observation
+
+
+def test_one_timeout_can_still_finish_when_limits_remain():
+    from app.extract.client import OllamaTimeout
+
+    class Flaky:
+        def __init__(self):
+            self.calls = 0
+
+        def complete_json(self, *, system, user, json_schema, timeout=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise OllamaTimeout(timeout or 10)
+            return _tool("abstain", reason="the meeting postponed the decision")
+
+    config = load_agent_config().model_copy(update={"max_invalid_outputs": 2, "time_budget_seconds": 300})
+    client = Flaky()
+    decision, _returned, _route = _run([], client=client, config=config)
+    assert decision.outcome == AgentOutcome.abstain
+    assert decision.trace.steps[0].valid is False
+    assert "timed out" in decision.trace.steps[0].observation
+    assert decision.trace.steps[1].tool == "abstain"
+    assert client.calls == 2
+
+
+def test_think_tags_around_a_tool_call_still_run():
+    from app.extract.client import OllamaClient
+
+    payload = _tool("abstain", reason="nobody agreed a change")
+
+    def chat(**kwargs):
+        return {"message": {"content": f"<think>\nhmm\n</think>\n{payload}"}}
+
+    decision, _client, _route = _run([], client=OllamaClient(model="demo-model", chat=chat))
+    assert decision.outcome == AgentOutcome.abstain
+    assert decision.automatic is False
+    assert decision.trace.steps[0].valid is True
+    assert decision.trace.steps[0].tool == "abstain"
+
+
+def test_step_progress_names_the_case_on_stderr(capsys):
+    _run(
+        [_tool("abstain", reason="nobody agreed a change")],
+        case_number=2,
+        case_count=3,
+    )
+    captured = capsys.readouterr()
+    assert "agent case 2/3 step 1..." in captured.err
 
 
 def test_abstain_needs_a_reason():
