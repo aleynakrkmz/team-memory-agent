@@ -47,9 +47,15 @@ TOOL_NAMES = (
     "escalate",
 )
 
+# Ollama turns this schema into a grammar for the reply. `additionalProperties`
+# must stay False: with open keys, qwen3 sometimes closes a key with a curly
+# quote (`"task_id”: ...`), the grammar accepts it as part of the key, and the
+# reply never ends until the timeout or Ollama's repeat limit. With a fixed key
+# list the grammar forces a plain closing quote. `arguments` is left out for
+# the same reason (an open object); parse_tool_call still accepts it.
 TOOL_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "additionalProperties": True,
+    "additionalProperties": False,
     "properties": {
         "tool": {"type": "string", "enum": list(TOOL_NAMES)},
         "query": {"type": "string"},
@@ -66,7 +72,6 @@ TOOL_JSON_SCHEMA: dict[str, Any] = {
         "due_date": {"type": ["string", "null"]},
         "evidence_refs": {"type": "array", "items": {"type": "string"}},
         "reason": {"type": "string"},
-        "arguments": {"type": "object"},
     },
     "required": ["tool"],
 }

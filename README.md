@@ -40,3 +40,24 @@ uv sync
 cp .env.example .env
 uv run pytest
 ```
+
+## Running the pipeline
+
+Needs Ollama running with `qwen3:8b` (`ollama pull qwen3:8b`).
+
+```bash
+# Preview one meeting, task list from a JSON file
+uv run python -m app.pipeline samples/demo --meeting 3 --tasks samples/demo/tasks_before_meeting_03.json
+
+# Same, with the project's SQLite database as memory and record
+uv run python -m app.pipeline samples/demo --meeting 3 --db data/demo/run1/memory.sqlite --tasks samples/demo/tasks_before_meeting_03.json
+```
+
+The JSON preview goes to stdout (`--out` also writes it to a file). Progress
+goes to stderr. Nothing is approved or written to the task list yet.
+
+## Docs
+
+- [docs/storage.md](docs/storage.md): the append-only SQLite store, its rules, and `--db`
+- [docs/demo_run.md](docs/demo_run.md): results on demo meetings 1–3 and what changed
+- [docs/model_selection.md](docs/model_selection.md): how the models were chosen
