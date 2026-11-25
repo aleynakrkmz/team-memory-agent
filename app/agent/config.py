@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "agent.json"
 
+# One JSON call. Long enough for a meeting's candidates, short enough to stop a runaway reply.
+DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
+DEFAULT_NUM_PREDICT = 4096
+
 
 class AgentConfig(BaseModel):
     """Starting limits from design §3.5. Tune on the development set, then freeze."""
@@ -20,6 +24,9 @@ class AgentConfig(BaseModel):
     max_invalid_outputs: int = Field(default=2, ge=1)
     model: str = "qwen3:8b"
     search_max_results: int = Field(default=5, ge=1, le=20)
+    think: bool = False
+    ollama_timeout_seconds: float = Field(default=DEFAULT_OLLAMA_TIMEOUT_SECONDS, gt=0)
+    num_predict: int = Field(default=DEFAULT_NUM_PREDICT, ge=1)
 
 
 def load_agent_config(path: Path | None = None) -> AgentConfig:

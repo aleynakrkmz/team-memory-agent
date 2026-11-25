@@ -7,6 +7,7 @@ an automatic escalate. Nothing here writes the task list.
 """
 
 import json
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -20,7 +21,7 @@ from app.agent.tools import (
     parse_tool_call,
     run_tool,
 )
-from app.extract.client import LLMClient
+from app.extract.client import LLMClient, OllamaTimeout
 from app.schemas import (
     AgentDecision,
     AgentOutcome,
@@ -67,6 +68,8 @@ def run_case(
     reader: MemoryReader,
     config: AgentConfig | None = None,
     clock: Callable[[], float] | None = None,
+    case_number: int = 1,
+    case_count: int = 1,
 ) -> AgentDecision:
     """Run one hard case until it ends or a budget forces an escalate."""
     config = config or load_agent_config()
@@ -97,7 +100,8 @@ def run_case(
                 started=started,
                 clock=clock,
             )
-        if _over_budget(clock, started, config):
+        elapsed = clock() - started
+        if elapsed >= config.time_budget_seconds:
             return _finish(
                 decision=decision,
                 outcome=AgentOutcome.escalate,
@@ -108,8 +112,43 @@ def run_case(
                 started=started,
                 clock=clock,
             )
+        remaining = config.time_budget_seconds - elapsed
+        _progress(f"agent case {case_number}/{case_count} step {len(steps) + 1}...")
         user = render_user_message(context, steps, config, rejection=rejection)
-        raw = client.complete_json(system=system, user=user, json_schema=TOOL_JSON_SCHEMA)
+        try:
+            raw = client.complete_json(
+                system=system,
+                user=user,
+                json_schema=TOOL_JSON_SCHEMA,
+                timeout=remaining,
+            )
+        except TimeoutError as exc:
+            invalid_streak += 1
+            limit = exc.timeout if isinstance(exc, OllamaTimeout) else remaining
+            note = f"model call timed out after {float(limit):g} seconds"
+            steps.append(
+                _step(
+                    len(steps) + 1,
+                    tool=None,
+                    arguments={},
+                    valid=False,
+                    observation=note,
+                    raw_output="",
+                )
+            )
+            if invalid_streak >= config.max_invalid_outputs or _over_budget(clock, started, config):
+                return _finish(
+                    decision=decision,
+                    outcome=AgentOutcome.escalate,
+                    proposal=None,
+                    reason=note,
+                    automatic=True,
+                    steps=steps,
+                    started=started,
+                    clock=clock,
+                )
+            rejection = note
+            continue
         if _over_budget(clock, started, config):
             steps.append(
                 _step(
@@ -220,11 +259,14 @@ def resolve_hard_cases(
     if not (len(candidates) == len(matches) == len(decisions)):
         raise ValueError("candidates, matches, and decisions must line up")
     resolved: list[AgentDecision] = []
+    hard_total = sum(1 for decision in decisions if decision.route == RouteKind.hard)
+    seen = 0
     for index, (candidate, match, decision) in enumerate(zip(candidates, matches, decisions, strict=True)):
         if decision.route != RouteKind.hard:
             continue
         if decision.candidate_index != index or match.candidate_index != index:
             raise ValueError("results must stay in candidate order")
+        seen += 1
         resolved.append(
             run_case(
                 meeting=meeting,
@@ -237,6 +279,8 @@ def resolve_hard_cases(
                 reader=reader,
                 config=config,
                 clock=clock,
+                case_number=seen,
+                case_count=hard_total,
             )
         )
     return resolved
@@ -384,6 +428,10 @@ def _step(
 
 def _over_budget(clock: Callable[[], float], started: float, config: AgentConfig) -> bool:
     return clock() - started >= config.time_budget_seconds
+
+
+def _progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 def _plain(text: str) -> str:

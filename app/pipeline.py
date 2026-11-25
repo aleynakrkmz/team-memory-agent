@@ -12,6 +12,9 @@ the current rows.
 Ollama is used only when no client is injected. Set AGENT_MODEL in .env
 (qwen3:8b). If extraction fails, the process exits 1 so the meeting
 controller can fall back to the B1 rules. This module does not run B1.
+
+Stage lines go to stderr (`extract...`, `agent case 1/2 step 1...`).
+Stdout stays the preview JSON.
 """
 
 import argparse
@@ -51,8 +54,11 @@ def run_meeting(
     reader: MemoryReader | None = None,
     clarifications: list[SimulatedClarification] | None = None,
 ) -> MeetingPreview:
+    _progress("extract...")
     candidates = extract_candidates(meeting, client)
+    _progress("match...")
     matches = match_candidates(candidates, tasks, meeting.meeting_date)
+    _progress("route...")
     decisions = route_candidates(meeting, candidates, matches, tasks, team)
     agent_decisions: list[AgentDecision] = []
     if any(decision.route == RouteKind.hard for decision in decisions):
@@ -154,6 +160,10 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
     json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
     return 0
+
+
+def _progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 def _proposals(decisions: list[RoutingDecision], agent_decisions: list[AgentDecision]) -> list[ProposedUpdate]:

@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from app.extract.client import LLMClient
+from app.extract.client import LLMClient, OllamaTimeout
 from app.schemas import ActionType, CandidateChange, EvidenceQuote, MeetingTranscript
 
 EXTRACT_ATTEMPTS = 2
@@ -135,7 +135,17 @@ def extract_candidates(
     last_reason = "no response"
     for attempt in range(1, EXTRACT_ATTEMPTS + 1):
         user = render_user_message(meeting, rejection=rejection)
-        last_output = client.complete_json(system=system, user=user, json_schema=schema)
+        try:
+            last_output = client.complete_json(system=system, user=user, json_schema=schema)
+        except TimeoutError as exc:
+            # A second wait would burn the meeting budget. Exit 1 still lets the controller use B1.
+            limit = exc.timeout if isinstance(exc, OllamaTimeout) else None
+            detail = f" after {limit:g} seconds" if isinstance(limit, (int, float)) else ""
+            raise ExtractionError(
+                f"extraction timed out{detail}",
+                attempts=attempt,
+                last_output="",
+            ) from exc
         try:
             return _parse_output(last_output, meeting)
         except ValueError as exc:
