@@ -21,7 +21,7 @@ from app.agent.tools import (
     parse_tool_call,
     run_tool,
 )
-from app.extract.client import LLMClient, OllamaTimeout
+from app.extract.client import LLMClient, OllamaGenerationError, OllamaTimeout
 from app.schemas import (
     AgentDecision,
     AgentOutcome,
@@ -122,10 +122,15 @@ def run_case(
                 json_schema=TOOL_JSON_SCHEMA,
                 timeout=remaining,
             )
-        except TimeoutError as exc:
+        except (TimeoutError, OllamaGenerationError) as exc:
+            # A stuck or aborted model call counts as one invalid reply for this
+            # case only (design §3.5: treated as a tool failure, one retry).
             invalid_streak += 1
-            limit = exc.timeout if isinstance(exc, OllamaTimeout) else remaining
-            note = f"model call timed out after {float(limit):g} seconds"
+            if isinstance(exc, OllamaGenerationError):
+                note = f"model call failed: {exc.detail}"
+            else:
+                limit = exc.timeout if isinstance(exc, OllamaTimeout) else remaining
+                note = f"model call timed out after {float(limit):g} seconds"
             steps.append(
                 _step(
                     len(steps) + 1,

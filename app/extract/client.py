@@ -30,6 +30,20 @@ class OllamaTimeout(TimeoutError):
         super().__init__(f"Ollama call timed out after {self.timeout:g} seconds")
 
 
+class OllamaGenerationError(RuntimeError):
+    """Ollama stopped a reply on the server side (status 5xx).
+
+    The usual cause is `token repeat limit reached`: the model kept repeating
+    itself and Ollama aborted the reply. Like a timeout, this is a failed model
+    call, not a setup error, so callers treat it as one invalid reply.
+    """
+
+    def __init__(self, detail: str, status: int | None = None):
+        self.detail = detail
+        self.status = status
+        super().__init__(f"Ollama stopped the reply: {detail}")
+
+
 class LLMClient(Protocol):
     """One JSON completion. `system` is trusted. `user` contains the transcript as data."""
 
@@ -105,6 +119,9 @@ class OllamaClient:
         except Exception as exc:
             if _is_http_timeout(exc):
                 raise OllamaTimeout(limit) from exc
+            status = _server_error_status(exc)
+            if status is not None:
+                raise OllamaGenerationError(_error_text(exc), status) from exc
             raise
         message = response["message"] if isinstance(response, dict) else response.message
         content = message["content"] if isinstance(message, dict) else message.content
@@ -201,6 +218,18 @@ def _env_int(name: str) -> int | None:
     if value < 1:
         raise RuntimeError(f"{name} must be at least 1, got {raw!r}")
     return value
+
+
+def _server_error_status(exc: BaseException) -> int | None:
+    """The status of an Ollama 5xx reply error, else None (a 404 model error stays fatal)."""
+    status = getattr(exc, "status_code", None)
+    if type(exc).__name__ == "ResponseError" and isinstance(status, int) and status >= 500:
+        return status
+    return None
+
+
+def _error_text(exc: BaseException) -> str:
+    return str(getattr(exc, "error", None) or exc).strip()
 
 
 def _is_http_timeout(exc: BaseException) -> bool:

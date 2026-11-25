@@ -3,11 +3,17 @@
 Clear cases keep the route proposal. Hard cases go through the read-only
 agent. The printed JSON has `proposals` (both kinds, in candidate order) and
 `agent_decisions` (the step trace). Nothing here is approved, and nothing is
-written to the task list. Pass a task-list JSON until the store can supply
-the current rows.
+written to the task list.
+
+Without `--db` the task list comes from a `--tasks` JSON file and the agent
+reads the transcripts on disk. With `--db` the meeting is stored in the
+project's append-only SQLite database, the task list is read from it, the
+agent reads it through `SqliteMemory`, and cases, proposals and a run record
+are stored. `--tasks` with `--db` seeds an empty task list.
 
     uv run python -m app.pipeline samples/demo --meeting 1
     uv run python -m app.pipeline samples/demo --meeting 3 --tasks tasks.json
+    uv run python -m app.pipeline samples/demo --meeting 3 --db data/demo/run1/memory.sqlite
 
 Ollama is used only when no client is injected. Set AGENT_MODEL in .env
 (qwen3:8b). If extraction fails, the process exits 1 so the meeting
@@ -20,6 +26,7 @@ Stdout stays the preview JSON.
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 from pydantic import TypeAdapter
@@ -39,6 +46,14 @@ from app.schemas import (
     TaskRecord,
     TeamProfile,
 )
+from app.store import SqliteMemory, StoreError
+from app.store.session import (
+    default_run_id,
+    open_or_create,
+    prepare_meeting,
+    record_failure,
+    record_preview,
+)
 from app.transcript import find_agent_inputs, load_meeting
 
 _TASKS = TypeAdapter(list[TaskRecord])
@@ -55,7 +70,7 @@ def run_meeting(
     clarifications: list[SimulatedClarification] | None = None,
 ) -> MeetingPreview:
     _progress("extract...")
-    candidates = extract_candidates(meeting, client)
+    candidates = extract_candidates(meeting, client, tasks=tasks)
     _progress("match...")
     matches = match_candidates(candidates, tasks, meeting.meeting_date)
     _progress("route...")
@@ -130,7 +145,20 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         default=None,
         help="Also write the preview JSON to this path.",
     )
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=None,
+        help="Project SQLite database (created if missing), e.g. data/demo/run1/memory.sqlite.",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Run id for the stored run record. Default: <project>-m<meeting>-<UTC time>.",
+    )
     args = parser.parse_args(argv)
+    if args.db is not None:
+        return _main_with_store(args, client)
     try:
         agent_inputs = find_agent_inputs(args.project)
         meeting, team = load_meeting(agent_inputs, args.meeting, transcript_file=args.transcript_file)
@@ -154,9 +182,62 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
     except (RuntimeError, ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2 if isinstance(exc, RuntimeError) else 1
+    return _emit(preview, args.out)
+
+
+def _main_with_store(args: argparse.Namespace, client: LLMClient | None) -> int:
+    """The same run, with the project database as memory and record."""
+    try:
+        agent_inputs = find_agent_inputs(args.project)
+        meeting, team = load_meeting(agent_inputs, args.meeting, transcript_file=args.transcript_file)
+        seed = load_tasks(args.tasks) if args.tasks is not None else None
+        clarifications = clarifications_from_file(args.clarifications) if args.clarifications else None
+        store = open_or_create(args.db, team.project_id)
+    except (StoreError, ValueError, OSError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    run_id = args.run_id or default_run_id(team.project_id, meeting.meeting_no)
+    started = time.monotonic()
+    with store:
+        try:
+            tasks, notes = prepare_meeting(store, agent_inputs=agent_inputs, meeting=meeting, team=team, seed=seed)
+        except (StoreError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        for note in notes:
+            _progress(f"db: {note}")
+        _progress(f"db: {len(tasks)} current tasks, run {run_id}")
+        try:
+            if client is None:
+                client = ollama_client_from_env()
+            with SqliteMemory(args.db, project_id=team.project_id, clarifications=clarifications) as reader:
+                preview = run_meeting(meeting, tasks, team, client, reader=reader)
+        except ExtractionError as exc:
+            record_failure(
+                store, run_id=run_id, meeting_no=meeting.meeting_no, stop_reason="extraction_failed",
+                detail=str(exc), seconds=time.monotonic() - started,
+            )
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        except (RuntimeError, ValueError, OSError) as exc:
+            record_failure(
+                store, run_id=run_id, meeting_no=meeting.meeting_no, stop_reason="error",
+                detail=f"{type(exc).__name__}: {exc}", seconds=time.monotonic() - started,
+            )
+            print(f"error: {exc}", file=sys.stderr)
+            return 2 if isinstance(exc, RuntimeError) else 1
+        metrics = record_preview(store, preview, run_id=run_id, seconds=time.monotonic() - started)
+        _progress(
+            f"db: stored {len(preview.decisions)} cases, {metrics['proposals']} proposals, "
+            f"run record {run_id}"
+        )
+    return _emit(preview, args.out)
+
+
+def _emit(preview: MeetingPreview, out: Path | None) -> int:
     payload = preview.model_dump(mode="json")
-    if args.out is not None:
-        args.out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if out is not None:
+        out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
     return 0
