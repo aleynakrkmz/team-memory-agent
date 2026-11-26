@@ -54,10 +54,20 @@ uv run python -m app.pipeline samples/demo --meeting 3 --db data/demo/run1/memor
 ```
 
 The JSON preview goes to stdout (`--out` also writes it to a file). Progress
-goes to stderr. Nothing is approved or written to the task list yet.
+goes to stderr. Nothing is written to the task list by the pipeline.
+
+## Reviewing and committing
+
+```bash
+# Approve, reject or skip each proposal of meeting 3; an approval is committed at once
+uv run python -m app.review data/demo/run1/memory.sqlite --meeting 3
+```
+
+See [docs/review_and_commit.md](docs/review_and_commit.md).
 
 ## Docs
 
 - [docs/storage.md](docs/storage.md): the append-only SQLite store, its rules, and `--db`
+- [docs/review_and_commit.md](docs/review_and_commit.md): validation checks, Rule 1 and Rule 2, the review list and commit
 - [docs/demo_run.md](docs/demo_run.md): results on demo meetings 1–3 and what changed
 - [docs/model_selection.md](docs/model_selection.md): how the models were chosen
