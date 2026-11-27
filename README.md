@@ -107,6 +107,7 @@ See [docs/evaluation.md](docs/evaluation.md).
 
 - [docs/storage.md](docs/storage.md): the append-only SQLite store, its rules, and `--db`
 - [docs/data_generation.md](docs/data_generation.md): how the development and test projects are generated, checked and frozen
+- [docs/evaluation_contract.md](docs/evaluation_contract.md): the evaluation contract from the design document and what has been run against it
 - [docs/evaluation.md](docs/evaluation.md): the harness, the scorer, B1, the modes and the run record
 - [docs/review_and_commit.md](docs/review_and_commit.md): validation checks, Rule 1 and Rule 2, the review list and commit
 - [docs/baseline_b1.md](docs/baseline_b1.md): baseline B1 (fixed rules, no LLM) and `--system b1`
