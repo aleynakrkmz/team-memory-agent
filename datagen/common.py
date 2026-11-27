@@ -80,7 +80,15 @@ def ordinal(n: int) -> str:
 #   - The answer key keeps where each label was ("E9 -> lines 4 and 5"),
 #     so we can check later whether the system cited the right lines.
 # (Design document, Section 6.1-B)
-TAG_RE = re.compile(r"\s*\[(E\d+(?:\s*,\s*E\d+)*)\]\s*$")
+# A label is accepted anywhere in a line and in the forms models actually write:
+#   "[E7]", "[E7, E8]", "[E7][E8]", "(E7)", "{E7}", "<E7>", "[Event E7]", "**[E7]**", "E7:" at the start,
+#   "... - E7" at the end. "E7" is never a word in real speech, so any such token is a label.
+_ID = r"E\d{1,3}"
+TAG_RE = re.compile(
+    r"\s*\**\s*[\[\(\{<]?\s*(?:(?:event|tag)\s*)?"
+    rf"({_ID}(?:\s*(?:,|&|/|;|\band\b|\s)\s*{_ID})*)"
+    r"\b\s*[\]\)\}>]?\s*\**(?:\s*[:\-\u2013\u2014](?=\s))?", re.I)
+BARE_EVENT_ID = re.compile(r"\bE\d{1,3}\b")   # "drop the task, E12?" -> a label leaked into the speech
 
 def split_tags(lines):
     """Splits the labels off the lines.
@@ -88,13 +96,29 @@ def split_tags(lines):
     Output: transcript = [("Can", "Sure, I can take it."), ...]     <- what the system will see
             evidence   = {"E9": [5], ...}                           <- goes to the answer key"""
     transcript, evidence = [], {}
-    for i, (spk, text) in enumerate(lines, start=1):
-        m = TAG_RE.search(text)
-        clean = TAG_RE.sub("", text).strip()
-        if m:
-            for eid in re.split(r"\s*,\s*", m[1]):
-                evidence.setdefault(eid, []).append(i)
-        transcript.append((spk, clean))
+    for spk, text in lines:
+        i = len(transcript) + 1
+        only_tags = not TAG_RE.sub("", text).strip(" .,*-")
+        for m in TAG_RE.finditer(text):
+            # A label alone on a line or at the very start of a line closes the item said on the line before:
+            #   Ece: Yeah, it's all wrapped up.
+            #   Burak: [E4] Great job, Ece. Next up, ...      -> E4 is Ece's line (mistral-nemo, dev set v1)
+            line = i - 1 if (only_tags or m.start() == 0 or not text[:m.start()].strip(" *")) and transcript else i
+            for eid in re.findall(r"E\d{1,3}", m[1], re.I):
+                eid = eid.upper()
+                if line not in evidence.setdefault(eid, []):
+                    evidence[eid].append(line)
+        clean = TAG_RE.sub(" ", text)
+        clean = re.sub(r"\(\s*\)|\[\s*\]|\*\*", "", clean)            # empty brackets, Markdown bold
+        clean = re.sub(r"\s+([.,!?;:])", r"\1", clean)                  # "Thursday ." -> "Thursday."
+        clean = re.sub(r",\s*([.!?])", r"\1", clean)                    # "Next, E9." -> "Next,." -> "Next."
+        clean = re.sub(r",\s*,", ",", clean)                              # "First up,, the" -> "First up, the"
+        clean = re.sub(r"([!?]),", r"\1", clean)                          # "Great job!, Burak" -> "Great job! Burak"
+        clean = re.sub(r"(?<!\.)\.\.(?!\.)", ".", clean)                    # "Kaan.." -> "Kaan."
+        clean = re.sub(r"\s+(?:with|about)([.!?])", r"\1", clean)       # "kick off with E8." -> "kick off."
+        clean = re.sub(r"\s{2,}", " ", clean).strip(" -\u2013\u2014")
+        if clean:
+            transcript.append((spk, clean))
     return transcript, evidence
 
 def apply_events(state: dict, events: list) -> dict:
@@ -126,6 +150,45 @@ def expected_states(events, n_meetings):
         states[str(m)] = s
     return states
 
+# A model often spreads one agenda item over a few lines and labels only one of them:
+#   Ayşe: Alright, I'll take it on. When do you need it by?
+#   Ali: By Thursday, please. [E1]
+# The owner (Ayşe) is in the line before the label. complete_evidence looks at up to WINDOW lines before
+# and after the labelled lines; if the owner or the date that the labelled lines lack is said there,
+# that line is added to the event's evidence. The answer key then cites every line the change rests on.
+WINDOW = 2
+
+def _owner_named(text_lines, speakers, owner, members):
+    return mentions(" ".join(text_lines), members.get(owner, [owner])) or owner in speakers
+
+def _date_said(text_lines, due, meeting_date):
+    return dt.date.fromisoformat(due) in find_dates(" ".join(text_lines), meeting_date)
+
+def complete_evidence(team, scenario, meeting_no, transcript, evidence):
+    """Returns a copy of evidence with the neighbour lines that carry a missing owner or date."""
+    members = names_of(team)
+    meeting_date = dt.date.fromisoformat(scenario["meeting_dates"][meeting_no - 1])
+    out = {k: list(v) for k, v in evidence.items()}
+    for e in [e for e in scenario["events"] if e["meeting"] == meeting_no]:
+        nums = out.get(e["event_id"])
+        if not nums:
+            continue
+        lo, hi = max(1, min(nums) - WINDOW), min(len(transcript), max(nums) + WINDOW)
+        near = [i for i in range(lo, hi + 1) if i not in nums]
+        needs = []
+        if e.get("owner") and e.get("ambiguity") != "owner" and e["type"] in ("create", "assign"):
+            needs.append(lambda ls, sp, e=e: _owner_named(ls, sp, e["owner"], members))
+        if e.get("due_date") and e["type"] in ("create", "set_due_date"):
+            needs.append(lambda ls, sp, e=e: _date_said(ls, e["due_date"], meeting_date))
+        for need in needs:
+            if need([transcript[i - 1][1] for i in nums], {transcript[i - 1][0] for i in nums}):
+                continue
+            for i in sorted(near, key=lambda i: abs(i - nums[0])):    # the closest line first
+                if need([transcript[i - 1][1]], {transcript[i - 1][0]}):
+                    nums.append(i); near.remove(i); break
+        nums.sort()
+    return out
+
 def write_project(base: Path, project_id: str, team: dict, scenario: dict, meetings: dict):
     """meetings: {meeting_no: [(speaker, text_with_tag), ...]}.
     Writes one project to two separate folders:
@@ -140,6 +203,7 @@ def write_project(base: Path, project_id: str, team: dict, scenario: dict, meeti
     (key / "scenario.json").write_text(json.dumps(scenario, indent=2, ensure_ascii=False), encoding="utf-8")
     for m, lines in meetings.items():
         transcript, evidence = split_tags(lines)
+        evidence = complete_evidence(team, scenario, m, transcript, evidence)
         (inp / f"meeting_{m:02d}.transcript.txt").write_text(
             "\n".join(f"{s}: {t}" for s, t in transcript) + "\n", encoding="utf-8")
         (key / f"meeting_{m:02d}.evidence.json").write_text(
@@ -168,12 +232,13 @@ def auto_check(team, scenario, meeting_no, lines, checker=None):
     members = names_of(team)
     meeting_date = dt.date.fromisoformat(scenario["meeting_dates"][meeting_no - 1])
     transcript, evidence = split_tags(lines)
+    evidence = complete_evidence(team, scenario, meeting_no, transcript, evidence)
     events = [e for e in scenario["events"] if e["meeting"] == meeting_no]
     # Every speaker must be a team member, and no label may be left in the clean text.
     for i, (spk, txt) in enumerate(transcript, 1):
         if spk not in members:
             problems.append(("unknown_speaker", None, f"line {i}: {spk}"))
-        if re.search(r"\[E\d+", txt):
+        if re.search(r"\[E\d+", txt) or BARE_EVENT_ID.search(txt):
             problems.append(("tag_leak", None, f"line {i}"))
     for e in events:
         eid = e["event_id"]
@@ -428,10 +493,16 @@ def build_prompt(team, scenario, m):
     The rules at the end ask for labels such as [E9] and forbid extra task changes."""
     people = "\n".join(f"- {p['name']} ({p['role']})" for p in team["members"])
     agenda = []
+    # Who owns each task before this meeting. Without it a generator lets anyone report a task as done
+    # ("Ali: All done" for Selin's task) or asks a non-owner about a new date, which reads like a hand-over
+    # that the answer key does not have (dev set v1, manual check).
+    before = scenario.get("expected_state", {}).get(str(m - 1), {})
     for e in [e for e in scenario["events"] if e["meeting"] == m]:
         t = scenario["tasks"][e["task_id"]]; d = t["description"]
         if e["type"] == "create" and e["ambiguity"] == "owner":
-            s = f"Someone says the task '{d}' must be done but NOBODY says who will do it."
+            s = (f"Someone says the task '{d}' must be done, but it stays open who will do it: nobody volunteers, "
+                 f"nobody is asked by name, and the item ends with something like 'let's figure out who later'. "
+                 f"Do not write any person's name in the lines of this item.")
         elif e["type"] == "create":
             s = f"{e['owner']} agrees to do a new task '{d}'."
         elif e["type"] == "assign" and e["ambiguity"] == "reference":
@@ -447,6 +518,10 @@ def build_prompt(team, scenario, m):
             s = f"The team decides to drop the task '{d}'."
         if e.get("due_phrase"):
             s += f" The deadline must be said exactly as '{e['due_phrase']}'."
+        holder = before.get(e["task_id"], {}).get("owner") if e["type"] in ("complete", "set_due_date", "cancel") else None
+        if holder:
+            s += (f" The task currently belongs to {holder}: only {holder} reports on it or is asked about it, "
+                  f"and its owner does not change.")
         agenda.append(f"{e['event_id']}: {s}")
     system = ("You write realistic, slightly messy transcripts of weekly software project meetings. "
               "You role-play every participant with their own way of speaking: interruptions, small talk, "
@@ -454,7 +529,9 @@ def build_prompt(team, scenario, m):
     user = (f"Meeting date: {scenario['meeting_dates'][m-1]}. Coordinator: {team['coordinator']}.\n"
             f"Participants:\n{people}\n\nAgenda (each item must happen in the conversation):\n" + "\n".join(agenda) +
             "\n\nRules:\n- Write 20 to 35 lines, each as 'Name: text'. Use only the participants above.\n"
-            "- At the END of every line that states an agenda item, add its tag, e.g. [E3]. Do not tag other lines.\n"
+            "- An agenda item may take a few lines. Add its tag, e.g. [E3], at the END of EVERY line that carries part of it "
+            "(the task, who takes it, the date, the yes). Do not tag other lines. Never write a tag anywhere else, "
+            "and never say a tag out loud (not 'Next, E9.').\n"
             "- Do not agree any other task, owner change, deadline, completion or cancellation.\n"
             "- Output only the transcript.")
     return system, user
@@ -467,7 +544,20 @@ def parse_transcript(text, team):
     for raw in text.splitlines():
         m = re.match(r"^\s*\**([^:*]{1,30})\**\s*:\s*(.+)$", raw)
         if m and m[1].strip() in names:
-            out.append((m[1].strip(), m[2].strip()))
+            text = re.sub(r"^\*+\s+|^\*+$|\s*\*\*$", "", m[2].strip())   # "** Alright" -> "Alright"
+            # Stage directions are not in real transcripts and can give the answer away
+            # ("*(Dropped)* for now"): "*sighs* Fine." / "(pauses) by the 13th" -> "Fine." / "by the 13th".
+            # A bracket that holds a label such as (E4) is kept for split_tags.
+            text = re.sub(r"\*\(?[^*()]*\)?\*|\((?![^)]*\bE\d)[^()]*\)|\[(?![^\]]*\bE\d)[^\[\]]*\]", " ", text)
+            text = re.sub(r"^[A-Z][a-z]+(?: [a-z]+)? \*\s+", "", text)       # "Typing * Hi everyone" -> "Hi everyone"
+            text = re.sub(r"\s+([.,!?;:])", r"\1", re.sub(r"\s{2,}", " ", text)).strip()
+            text = re.sub(r"\.{4,}", "...", re.sub(r"^[.,]\s*", "", text))                              # "(pauses)... yes" -> "yes"
+            if len(text) > 1 and text[0] == text[-1] == '"':       # 'Ali: "Hey everyone."' -> 'Hey everyone.'
+                text = text[1:-1].strip()
+            elif text.startswith('"') and re.search(r'"\s*(\[E\d[^\]]*\])?$', text):   # '"Sure. [E8]"' or '"Sure." [E8]'
+                text = re.sub(r'"\s*((?:\[E\d[^\]]*\])?)$', r" \1", text[1:]).strip()      # "Ayşe: ** Alright" -> "Alright" (Markdown from some generators)
+            if text:
+                out.append((m[1].strip(), text))
     return out
 
 # ---------- Talking to a model through Ollama ----------
@@ -477,7 +567,11 @@ def make_client(host="http://localhost:11434"):
     return Client(host=host)
 
 
-def ollama_chat(client, model, system, user, seed, temperature=0.8, num_ctx=32768):
+# A meeting prompt and its answer are under 3000 tokens. With 8192 instead of 32768 the generator and the
+# checker both fit on a 15 GB T4, so Ollama does not unload one to load the other for every meeting.
+DATAGEN_CTX = 8192
+
+def ollama_chat(client, model, system, user, seed, temperature=0.8, num_ctx=DATAGEN_CTX):
     """Sends one request and returns the model's text answer.
     The seed makes a retry produce a different meeting (attempt 2 and 3 use different seeds)."""
     r = client.chat(model=model, messages=[{"role": "system", "content": system},
