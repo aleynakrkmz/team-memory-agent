@@ -93,6 +93,26 @@ No model. B1 reads a meeting as a conversation:
 **Limit:** version 2 was written while reading all seven development projects, so its development score is
 optimistic. It is frozen before the test set is generated; the number that counts is the test-set number.
 
+## Results on dev set v1: three repeats
+
+7 projects, 35 meetings, 134 expected changes; carry-forward; qwen3:8b (digest 500a1f067a9f), temperature 0,
+thinking off, on a Colab T4. Micro F1 over all projects is computed per repeat, then reported as mean and range
+(`compare.py --repeats`).
+
+| Configuration | Repeats | Precision mean (min-max) | Recall mean (min-max) | F1 mean (min-max) | TP/FP/FN per repeat |
+|---|---|---|---|---|---|
+| agent | 3 | 0.811 (0.736-0.849) | 0.468 (0.463-0.478) | **0.592** (0.579-0.599) | 62/11/72, 62/11/72, 64/23/70 |
+| B1 | 3 | 0.664 | 0.560 | **0.607** | 75/38/59 (all three) |
+| B2 | 3 | 0.680 (0.672-0.684) | 0.296 (0.291-0.306) | **0.412** (0.408-0.421) | 41/20/93, 39/18/95, 39/18/95 |
+
+- Temperature 0 is not fully deterministic on the GPU: the agent gave the same answers in two repeats and different
+  ones in three projects of the third; B2 differed in one repeat. B1 has no model and repeats exactly.
+- The agent and B1 are level: B1's F1 is 0.008 above the agent's best repeat. B2 is clearly lower in every repeat.
+- The agent is more precise than both baselines and finds fewer changes; most of its misses are changes to existing
+  tasks, where its hard-case proposals had no task id and were refused (first run: 137 of 156 `propose_update` calls).
+- Repeat 1 ran before `prompts/b2.md` was added, so its prompts hash differs; the agent's prompts and config are the
+  same in all three repeats.
+
 ## Model usage (real counts)
 
 The Ollama client keeps the token counts and times Ollama returns with every reply (`prompt_eval_count`,
@@ -137,6 +157,8 @@ downloads a CSV; `--score` prints the rates with their denominator.
 
 ## Limits of these numbers
 
+- Development data only, and B1's rules were written on it; the comparison that counts is on the test set.
+- Three repeats in carry-forward mode; reset-to-gold has not been repeated.
 - The simulated reviewer approves everything validation passes and answers every question at once and correctly.
 - The two sample projects are small (3 meetings, 11 changes each) and hand-written; they are not the evaluation set.
 - The ablations A1–A3 are not in the harness yet.
