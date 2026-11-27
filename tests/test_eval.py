@@ -150,3 +150,37 @@ def test_agent_trial_with_a_fake_model_is_marked_mock(tmp_path):
     # the saved previews can be replayed without a model
     again = run_trial(DEMO, "agent", "reset", out_root=tmp_path, replay=out / "previews", say=lambda _: None)
     assert json.loads((again / "scores.json").read_text())["change_f1"] == scores["change_f1"]
+
+
+def test_b2_trial_runs_through_the_pipeline_with_a_fake_model(tmp_path):
+    empty = json.dumps({"changes": [], "unclear": []})
+    done = json.dumps({"changes": [{"action": "complete", "task_id": "T2", "description": "Database schema", "owner": None,
+                                    "due_phrase": None, "evidence": [{"line": "L2", "quote": "The database schema is finished"}]}],
+                       "unclear": []})
+    out = run_trial(DEMO, "b2", "reset", out_root=tmp_path, client=FakeLLM([empty, done, empty]), say=lambda _: None)
+    scores = json.loads((out / "scores.json").read_text())
+    assert scores["execution_mode"] == "mock" and scores["change_f1"]["all"]["tp"] == 1
+    assert scores["meetings"][1]["pipeline"]["b2_calls"] == 1
+
+
+def test_real_token_counts_reach_the_scores(tmp_path):
+    from app.extract.client import OllamaClient
+
+    def chat(**payload):          # answers like Ollama, with its token counts and times
+        return {"message": {"content": json.dumps({"changes": [], "unclear": []})},
+                "prompt_eval_count": 900, "eval_count": 40, "total_duration": 2_500_000_000, "load_duration": 0}
+
+    client = OllamaClient("qwen3:8b", chat=chat)
+    out = run_trial(DEMO, "b2", "carry", out_root=tmp_path, client=client, say=lambda _: None)
+    usage = json.loads((out / "scores.json").read_text())["meetings"][0]["pipeline"]
+    assert (usage["calls"], usage["prompt_tokens"], usage["output_tokens"], usage["model_seconds"]) == (1, 900, 40, 2.5)
+
+
+def test_repeats_are_summarised_as_mean_and_range(tmp_path):
+    from eval.compare import repeats
+    for k in (1, 2):
+        run_trial(DEMO, "b1", "carry", out_root=tmp_path / f"rep{k}", say=lambda _: None)
+    table = repeats([tmp_path / "rep1", tmp_path / "rep2"])
+    assert len(table) == 1 and table[0]["repeats"] == 2
+    f1 = table[0]["f1 mean (min-max)"]
+    assert f1.split()[0] == f1.split("(")[1].split("-")[0]       # B1 is deterministic: mean = min

@@ -7,7 +7,8 @@
 A trial processes every meeting of the project in order. Each meeting:
 
 1. **Runs the configuration.** `agent`: the full pipeline (app.pipeline, with the database). `b1`: the rule
-   baseline (eval/b1.py), no model. `--replay DIR` uses the previews an earlier agent run saved instead of
+   baseline (eval/b1.py), no model. `b2`: the one-prompt baseline (app.pipeline --system b2, same model as the
+   agent). `--replay DIR` uses the previews an earlier agent run saved instead of
    calling the model (recorded replay). If extraction fails twice the meeting is processed by the B1 rules
    (design §11, failure 3) and this is recorded as an extraction fallback.
 2. **Simulated reviewer.** Deterministic code, not a model: every proposal that validation passes is approved
@@ -52,11 +53,12 @@ from app.schemas import MeetingPreview, TaskRecord  # noqa: E402
 from app.store.session import open_or_create, prepare_meeting, record_preview  # noqa: E402
 from app.store.store import MemoryStore  # noqa: E402
 from app.transcript import find_agent_inputs, load_meeting  # noqa: E402
-from app.validate.validate import Rule2Settings, validate_meeting  # noqa: E402
+from app.validate.validate import Issue, Rule2Settings, validate_meeting  # noqa: E402
 from eval.b1 import run_b1  # noqa: E402
 from eval.scorer import change_f1, score_meeting, state_accuracy  # noqa: E402
 
-CONFIGS = ("agent", "b1")
+CONFIGS = ("agent", "b1", "b2")
+MODEL_CONFIGS = ("agent", "b2")   # call the model through app.pipeline
 MODES = ("reset", "carry")
 STOP_REASONS = ("completed", "budget_exhausted", "invalid_action", "tool_failure", "approval_denied")
 
@@ -136,7 +138,7 @@ def run_record(project: Path, config: str, mode: str, execution_mode: str, run_i
         except metadata.PackageNotFoundError:
             pkgs[name] = None
     return {
-        "run_id": run_id, "project": project.name, "configuration": config, "mode": mode,
+        "run_id": run_id, "project": project.name, "project_path": str(project), "configuration": config, "mode": mode,
         "execution_mode": execution_mode, "replayed_from": str(replay) if replay else None,
         "model": model_identity(config, execution_mode),
         "prompts_sha": _sha(list((ROOT / "prompts").glob("*.md"))),
@@ -156,10 +158,12 @@ def make_preview(config: str, project: Path, meeting_no: int, db: Path, seed: li
     inputs = find_agent_inputs(project)
     meeting, team = load_meeting(inputs, meeting_no)
     events = {"stop_reason": "completed", "failure_detail": None, "extraction_fallback": False}
-    if config == "agent" and replay is None:
+    if config in MODEL_CONFIGS and replay is None:
         from app.pipeline import main as pipeline_main
         argv = [str(project), "--meeting", str(meeting_no), "--db", str(db), "--out", str(out),
                 "--clarifications", str(answers_file), "--run-id", f"{run_id}-m{meeting_no}"]
+        if config == "b2":
+            argv += ["--system", "b2"]      # B2 (app/baseline/b2.py): one prompt over the whole history
         if seed is not None:
             seed_file = out.with_suffix(".seed.json")
             seed_file.write_text(json.dumps([t.model_dump(mode="json") for t in seed]), encoding="utf-8")
@@ -169,10 +173,20 @@ def make_preview(config: str, project: Path, meeting_no: int, db: Path, seed: li
             code = pipeline_main(argv, client=client)
         events["log"] = log.getvalue()[-2000:]
         if code == 0:
+            with MemoryStore.open(db) as store:
+                rec = (store.run_records() or [{}])[-1]
+            metrics = json.loads(rec.get("metrics_json") or "{}")
+            # B2's own counters (app/baseline/b2.py): calls, prompt size, meetings left out, changes it dropped
+            events["pipeline"] = {k: (len(v) if isinstance(v, list) else v) for k, v in metrics.items()
+                                  if k in ("b2_calls", "prompt_tokens_estimate", "history_meetings_dropped",
+                                           "changes_returned", "rejected_changes", "unclear")}
+            usage = metrics.get("model_usage")
+            if usage:                                    # real counts from Ollama (app/extract/client.py)
+                events["pipeline"].update({k: usage[k] for k in ("calls", "prompt_tokens", "output_tokens", "model_seconds")})
             return MeetingPreview.model_validate_json(out.read_text(encoding="utf-8")), events
         with MemoryStore.open(db) as store:
             last = (store.run_records() or [{}])[-1]
-        if last.get("stop_reason") == "extraction_failed":
+        if config == "agent" and last.get("stop_reason") == "extraction_failed":
             events.update(extraction_fallback=True, failure_detail="invalid_output")
             with MemoryStore.open(db) as store:
                 preview = run_b1(meeting, store.current_tasks(), team)
@@ -193,7 +207,7 @@ def make_preview(config: str, project: Path, meeting_no: int, db: Path, seed: li
     return preview, events
 
 
-def simulated_review(db: Path, meeting_no: int, settings: Rule2Settings) -> list[dict]:
+def simulated_review(db: Path, meeting_no: int, settings: Rule2Settings, strict: bool = False) -> list[dict]:
     """Approve every proposal of the meeting that validation passes; record what happened to each."""
     out = []
     with MemoryStore.open(db) as store:
@@ -202,6 +216,10 @@ def simulated_review(db: Path, meeting_no: int, settings: Rule2Settings) -> list
         results = validate_meeting([p for _, p in stored], meeting=store.meeting(meeting_no), team=store.team_profile(),
                                    tasks=store.current_tasks(), clarification_ids=clarification_ids(store), settings=settings)
         for (pid, _), check in zip(stored, results):
+            if strict and check.status == "valid" and any(n.code == "rule2_line" for n in check.notes):
+                # experiment only: block when ANY cited line is addressed to the assistant, not only when it is the
+                # only evidence (the design's Rule 2). Measures what the stricter rule would prevent and cost.
+                check.blocks.append(Issue("rule2", "strict: one evidence line is addressed to the assistant"))
             row = {"proposal_id": pid, "validation": check.status, "issues": check.summary(), "committed_as": None}
             if check.status == "valid":
                 try:
@@ -236,29 +254,38 @@ def case_outcomes(preview: MeetingPreview | None, review: list[dict], config: st
 
 
 # ---------- a trial ----------
+RULE2_OFF = Rule2Settings(address_words=("\x00rule2-off",), greetings=("\x00rule2-off",), instruction_phrases=())
+
+
 def run_trial(project: Path, config: str, mode: str, *, replay: Path | None = None, out_root: Path | None = None,
-              client=None, say=print) -> Path:
+              client=None, say=print, rule2: bool | str = True) -> Path:
     project = project.resolve()
     if config not in CONFIGS or mode not in MODES:
         raise SystemExit(f"config must be one of {CONFIGS}, mode one of {MODES}")
-    execution_mode = "replay" if replay else ("live" if config == "agent" else "live (no model)")
-    if config == "agent" and client is not None and replay is None:
+    execution_mode = "replay" if replay else ("live" if config in MODEL_CONFIGS else "live (no model)")
+    if config in MODEL_CONFIGS and client is not None and replay is None:
         execution_mode = "mock"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     tag = "replay" if replay else execution_mode.split()[0]
-    run_id = f"{project.name}-{config}-{mode}-{tag}-{stamp}"
+    r2 = {True: "on", False: "off"}.get(rule2, rule2)
+    if r2 not in ("on", "off", "strict"):
+        raise SystemExit("rule2 must be on, off or strict")
+    suffix = "" if r2 == "on" else f"-rule2{r2}"
+    run_id = f"{project.name}-{config}-{mode}-{tag}{suffix}-{stamp}"
     base = out_root or ROOT / "runs" / "eval"
     n = 1
     while (base / run_id).exists():                  # two runs in the same second
         n += 1
-        run_id = f"{project.name}-{config}-{mode}-{tag}-{stamp}-{n}"
+        run_id = f"{project.name}-{config}-{mode}-{tag}{suffix}-{stamp}-{n}"
     out = base / run_id
     (out / "previews").mkdir(parents=True)
     scenario, evidence = load_key(project)
     answers_file = out / "simulated_answers.json"
     answers_file.write_text(json.dumps(simulated_answers(scenario), ensure_ascii=False, indent=2), encoding="utf-8")
     record = run_record(project, config, mode, execution_mode, run_id, replay)
-    settings = Rule2Settings.load()
+    settings = RULE2_OFF if r2 == "off" else Rule2Settings.load()   # off / strict: experiments only
+    record["rule2"] = r2
+    (out / "reviews").mkdir()
 
     meetings = len(scenario["meeting_dates"])
     rows, per_meeting, id_map = [], [], {}
@@ -271,7 +298,8 @@ def run_trial(project: Path, config: str, mode: str, *, replay: Path | None = No
             id_map = {t.task_id: t.task_id for t in seed}
         preview, events = make_preview(config, project, m, db, seed, out / "previews" / f"m{m}.json",
                                        answers_file, run_id, replay, client)
-        review, tasks_after = simulated_review(db, m, settings) if preview is not None else ([], [])
+        review, tasks_after = simulated_review(db, m, settings, strict=r2 == "strict") if preview is not None else ([], [])
+        (out / "reviews" / f"m{m}.json").write_text(json.dumps(review, ensure_ascii=False, indent=2), encoding="utf-8")
         proposals = preview.proposals if preview is not None else []
         committed = {i for i, r in enumerate(review) if r["committed_as"]}
         m_rows, created = score_meeting(m, proposals, scenario, evidence[m], id_map, committed)
@@ -281,8 +309,9 @@ def run_trial(project: Path, config: str, mode: str, *, replay: Path | None = No
         rows += m_rows
         entry = {"meeting": m, "seconds": round(time.monotonic() - started, 1), "stop_reason": events["stop_reason"],
                  "failure_detail": events["failure_detail"], "extraction_fallback": events["extraction_fallback"],
-                 "proposals": len(proposals), "committed": len(committed),
+                 "proposals": len(proposals), "committed": len(committed), "pipeline": events.get("pipeline", {}),
                  "validation": {s: sum(1 for r in review if r["validation"] == s) for s in ("valid", "blocked", "invalid", "stale")},
+                 "rule2_blocks": sum(1 for r in review if r["validation"] == "blocked" and "rule2" in str(r["issues"])),
                  "case_outcomes": case_outcomes(preview, review, config),
                  "agent_steps": sum(len(a.trace.steps) for a in preview.agent_decisions) if preview else 0,
                  "clarification_questions": sum(1 for a in (preview.agent_decisions if preview else [])
@@ -352,8 +381,11 @@ def main(argv=None) -> int:
     ap.add_argument("--mode", choices=MODES, default="reset")
     ap.add_argument("--replay", type=Path, help="previews/ folder of an earlier agent run: replay it instead of calling the model")
     ap.add_argument("--out", type=Path, help="where runs go (default runs/eval)")
+    ap.add_argument("--rule2", choices=("on", "off", "strict"), default="on",
+                    help="on: the design's Rule 2. off / strict: experiments that measure what Rule 2 prevents and "
+                         "costs, and what a stricter rule (block if any cited line is addressed to the assistant) would")
     a = ap.parse_args(argv)
-    run_trial(a.project, a.config, a.mode, replay=a.replay, out_root=a.out)
+    run_trial(a.project, a.config, a.mode, replay=a.replay, out_root=a.out, rule2=a.rule2)
     return 0
 
 

@@ -71,7 +71,6 @@ uv run python -m app.review data/demo/run1/memory.sqlite --meeting 3
 
 See [docs/review_and_commit.md](docs/review_and_commit.md).
 
-gozde/data-generation
 ## Generating the data sets
 
 ```bash
@@ -83,26 +82,32 @@ uv run python datagen/generate.py --rebuild-from datagen/out/dev --out datagen/o
 ```
 
 Output goes to `datagen/out/` (not in git). See [docs/data_generation.md](docs/data_generation.md).
-=======
 ## Evaluating
 
 ```bash
-# Run a configuration (agent or b1) on a project, in reset-to-gold or carry-forward mode, and score it
+# Run a configuration (agent, b1 or b2) on a project, in reset-to-gold or carry-forward mode, and score it
 uv run python eval/harness.py samples/demo --config agent --mode reset
 uv run python eval/compare.py runs/eval/*
+
+# Repeated runs: one folder per repeat, then mean and range
+uv run python eval/compare.py --repeats runs/rep1 runs/rep2 runs/rep3
+
+# Prompt injection: build the injected set, run with Rule 2 on / off / strict, report every injected line
+uv run python eval/injection.py build datagen/out/dev --out datagen/out/dev_injected
+uv run python eval/harness.py datagen/out/dev_injected/dev01 --config agent --mode carry --rule2 off
+uv run python eval/injection.py report runs/eval/*
+
+# Manual check of 30 committed proposals (unsupported-update rate)
+uv run python eval/unsupported_check.py runs/eval/*-agent-carry-* --out unsupported_check.html
 ```
 
 See [docs/evaluation.md](docs/evaluation.md).
- main
 
 ## Docs
 
 - [docs/storage.md](docs/storage.md): the append-only SQLite store, its rules, and `--db`
-gozde/data-generation
 - [docs/data_generation.md](docs/data_generation.md): how the development and test projects are generated, checked and frozen
-=======
 - [docs/evaluation.md](docs/evaluation.md): the harness, the scorer, B1, the modes and the run record
- main
 - [docs/review_and_commit.md](docs/review_and_commit.md): validation checks, Rule 1 and Rule 2, the review list and commit
 - [docs/baseline_b1.md](docs/baseline_b1.md): baseline B1 (fixed rules, no LLM) and `--system b1`
 - [docs/baseline_b2.md](docs/baseline_b2.md): baseline B2 (one prompt over the whole history) and `--system b2`

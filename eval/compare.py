@@ -2,6 +2,7 @@
 
     uv run python eval/compare.py runs/eval/*          # every run folder given
     uv run python eval/compare.py runs/eval/* --out docs/first_evaluation_table.md
+    uv run python eval/compare.py --repeats runs/rep1 runs/rep2 runs/rep3   # mean and range over repeated runs
 
 Every row says the configuration, the mode, the execution mode and the model, so that numbers from different
 modes are never mixed up (a replay or mock number is not a live number).
@@ -12,6 +13,13 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+
+
+def _total(scores: dict, key: str):
+    """Sum of a per-meeting model-usage count (real Ollama counts); empty when the run has none (B1, replay)."""
+    values = [m.get("pipeline", {}).get(key) for m in scores["meetings"]]
+    values = [v for v in values if v is not None]
+    return sum(values) if values else ""
 
 
 def rows(folders: list[Path]) -> list[dict]:
@@ -32,6 +40,8 @@ def rows(folders: list[Path]) -> list[dict]:
             "stop reasons": ", ".join(sorted({m["stop_reason"] for m in scores["meetings"]})),
             "fallbacks": sum(m["extraction_fallback"] for m in scores["meetings"]),
             "seconds": round(sum(m["seconds"] for m in scores["meetings"]), 1),
+            "model calls": _total(scores, "calls"), "prompt tokens": _total(scores, "prompt_tokens"),
+            "output tokens": _total(scores, "output_tokens"),
             "run": f.name,
         })
     return sorted(out, key=lambda x: (x["project"], x["mode"], x["configuration"], x["run"]))
@@ -56,6 +66,27 @@ def totals(table: list[dict]) -> list[dict]:
     return out
 
 
+def repeats(folders: list[Path]) -> list[dict]:
+    """One folder per repeat (each holds the runs of one repeat). Micro F1 is computed per repeat over all projects,
+    then reported as mean, min and max across the repeats, per configuration and mode."""
+    per: dict[tuple, list[dict]] = {}
+    for folder in folders:
+        for t in totals(rows(sorted(p for p in folder.iterdir() if p.is_dir()))):
+            per.setdefault((t["configuration"], t["mode"], t["execution"], t["model"]), []).append(t)
+    out = []
+    for (config, mode, execution, model), ts in sorted(per.items()):
+        def stat(key):
+            vals = [t[key] for t in ts if t[key] is not None]
+            if not vals:
+                return ""
+            return f"{sum(vals) / len(vals):.3f} ({min(vals):.3f}-{max(vals):.3f})"
+        out.append({"configuration": config, "mode": mode, "execution": execution, "model": model, "repeats": len(ts),
+                    "projects": ts[0]["projects"], "precision mean (min-max)": stat("precision"),
+                    "recall mean (min-max)": stat("recall"), "f1 mean (min-max)": stat("f1"),
+                    "tp/fp/fn per repeat": ", ".join(t["tp/fp/fn"] for t in ts)})
+    return out
+
+
 def markdown(table: list[dict]) -> str:
     if not table:
         return "No runs found.\n"
@@ -67,9 +98,16 @@ def markdown(table: list[dict]) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Compare evaluation runs in one table.")
-    ap.add_argument("runs", type=Path, nargs="+", help="run folders made by eval/harness.py")
+    ap.add_argument("runs", type=Path, nargs="+", help="run folders made by eval/harness.py (with --repeats: one folder per repeat)")
+    ap.add_argument("--repeats", action="store_true", help="each argument is the folder of one repeat")
     ap.add_argument("--out", type=Path, help="also write the table to this Markdown file")
     a = ap.parse_args(argv)
+    if a.repeats:
+        text = "Repeated runs (micro F1 over all projects, per repeat):\n\n" + markdown(repeats(a.runs))
+        print(text)
+        if a.out:
+            a.out.write_text(text, encoding="utf-8")
+        return 0
     table = rows(a.runs)
     text = markdown(table)
     if len({r["project"] for r in table}) > 1:
