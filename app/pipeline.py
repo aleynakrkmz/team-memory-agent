@@ -47,6 +47,7 @@ from app.agent import DemoMemory, MemoryReader, resolve_hard_cases
 from app.agent.memory import SimulatedClarification, clarifications_from_file
 from app.baseline import B2Error, extract_b1, run_b2
 from app.extract import ExtractionError, LLMClient, extract_candidates, ollama_client_from_env
+from app.extract.client import usage_summary
 from app.match import match_candidates
 from app.route import route_candidates
 from app.schemas import (
@@ -281,6 +282,7 @@ def _main_with_store(args: argparse.Namespace, client: LLMClient | None) -> int:
                 client = ollama_client_from_env()
             history = [store.meeting(no) for no in store.meeting_numbers() if no < meeting.meeting_no]
             run_info: dict = {}
+            calls_before = len(getattr(client, "usage", []))
             with SqliteMemory(args.db, project_id=team.project_id, clarifications=clarifications) as reader:
                 preview = run_meeting(
                     meeting, tasks, team, client, reader=reader, system=args.system,
@@ -302,6 +304,8 @@ def _main_with_store(args: argparse.Namespace, client: LLMClient | None) -> int:
             )
             print(f"error: {exc}", file=sys.stderr)
             return 2 if isinstance(exc, RuntimeError) else 1
+        if hasattr(client, "usage"):          # real token counts and model time of this meeting's calls
+            run_info["model_usage"] = usage_summary(client.usage[calls_before:])
         metrics = record_preview(
             store, preview, run_id=run_id, seconds=time.monotonic() - started, system=args.system, extra=run_info
         )

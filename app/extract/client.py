@@ -100,6 +100,9 @@ class OllamaClient:
         self.think = bool(think)
         self.timeout_seconds = float(timeout)
         self.num_predict = int(num_predict)
+        # One entry per answered call: the token counts and times Ollama reports with every reply.
+        # The pipeline copies the calls of a meeting into its run record (model_usage).
+        self.usage: list[dict[str, Any]] = []
 
     def complete_json(
         self,
@@ -123,6 +126,7 @@ class OllamaClient:
             if status is not None:
                 raise OllamaGenerationError(_error_text(exc), status) from exc
             raise
+        self.usage.append(response_usage(response))
         message = response["message"] if isinstance(response, dict) else response.message
         content = message["content"] if isinstance(message, dict) else message.content
         if not isinstance(content, str):
@@ -155,6 +159,27 @@ class OllamaClient:
         from ollama import Client
 
         return Client(host=self.host, timeout=limit).chat(**payload)
+
+
+def response_usage(response: Any) -> dict[str, Any]:
+    """Token counts and seconds of one Ollama reply (prompt_eval_count, eval_count, total_duration, load_duration).
+    A field Ollama did not send stays None."""
+    def get(name: str):
+        return response.get(name) if isinstance(response, dict) else getattr(response, name, None)
+    def seconds(name: str):
+        ns = get(name)
+        return round(ns / 1e9, 3) if isinstance(ns, (int, float)) else None
+    return {"prompt_tokens": get("prompt_eval_count"), "output_tokens": get("eval_count"),
+            "seconds": seconds("total_duration"), "load_seconds": seconds("load_duration")}
+
+
+def usage_summary(calls: list[dict[str, Any]]) -> dict[str, Any]:
+    """Totals over the calls of one meeting, with every call kept."""
+    def total(key: str):
+        values = [c[key] for c in calls if c.get(key) is not None]
+        return round(sum(values), 3) if values else None
+    return {"calls": len(calls), "prompt_tokens": total("prompt_tokens"), "output_tokens": total("output_tokens"),
+            "model_seconds": total("seconds"), "per_call": calls}
 
 
 def ollama_client_from_env() -> OllamaClient:
