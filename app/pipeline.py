@@ -15,9 +15,16 @@ are stored. `--tasks` with `--db` seeds an empty task list.
     uv run python -m app.pipeline samples/demo --meeting 3 --tasks tasks.json
     uv run python -m app.pipeline samples/demo --meeting 3 --db data/demo/run1/memory.sqlite
 
-Ollama is used only when no client is injected. Set AGENT_MODEL in .env
-(qwen3:8b). If extraction fails, the process exits 1 so the meeting
-controller can fall back to the B1 rules. This module does not run B1.
+`--system b1` runs baseline B1 instead: fixed rules find the candidates
+(`app/baseline/b1.py`, no LLM), match and route are the same, and hard cases
+get no proposal because B1 has no agent. Output and storage are the same, so
+the agent and B1 can be compared run for run.
+
+    uv run python -m app.pipeline samples/demo --meeting 3 --system b1 --db data/demo/b1/memory.sqlite
+
+Ollama is used only for `--system agent` and only when no client is injected.
+Set AGENT_MODEL in .env (qwen3:8b). If extraction fails, the process exits 1
+so the meeting controller can fall back to the B1 rules.
 
 Stage lines go to stderr (`extract...`, `agent case 1/2 step 1...`).
 Stdout stays the preview JSON.
@@ -33,6 +40,7 @@ from pydantic import TypeAdapter
 
 from app.agent import DemoMemory, MemoryReader, resolve_hard_cases
 from app.agent.memory import SimulatedClarification, clarifications_from_file
+from app.baseline import extract_b1
 from app.extract import ExtractionError, LLMClient, extract_candidates, ollama_client_from_env
 from app.match import match_candidates
 from app.route import route_candidates
@@ -57,26 +65,37 @@ from app.store.session import (
 from app.transcript import find_agent_inputs, load_meeting
 
 _TASKS = TypeAdapter(list[TaskRecord])
+SYSTEMS = ("agent", "b1")
 
 
 def run_meeting(
     meeting: MeetingTranscript,
     tasks: list[TaskRecord],
     team: TeamProfile,
-    client: LLMClient,
+    client: LLMClient | None,
     *,
     agent_inputs: Path | None = None,
     reader: MemoryReader | None = None,
     clarifications: list[SimulatedClarification] | None = None,
+    system: str = "agent",
 ) -> MeetingPreview:
-    _progress("extract...")
-    candidates = extract_candidates(meeting, client, tasks=tasks)
+    """`system` is "agent" (LLM extraction, agent on hard cases) or "b1" (rules, no agent)."""
+    if system not in SYSTEMS:
+        raise ValueError(f"unknown system {system!r}; use one of {', '.join(SYSTEMS)}")
+    if system == "b1":
+        _progress("extract (B1 rules)...")
+        candidates = extract_b1(meeting, tasks, team)
+    else:
+        if client is None:
+            raise RuntimeError("the agent system needs a model client")
+        _progress("extract...")
+        candidates = extract_candidates(meeting, client, tasks=tasks)
     _progress("match...")
     matches = match_candidates(candidates, tasks, meeting.meeting_date)
     _progress("route...")
     decisions = route_candidates(meeting, candidates, matches, tasks, team)
     agent_decisions: list[AgentDecision] = []
-    if any(decision.route == RouteKind.hard for decision in decisions):
+    if system == "agent" and any(decision.route == RouteKind.hard for decision in decisions):
         if reader is None:
             if agent_inputs is None:
                 raise RuntimeError("hard cases need agent inputs so the agent can read past meetings")
@@ -152,6 +171,12 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         help="Project SQLite database (created if missing), e.g. data/demo/run1/memory.sqlite.",
     )
     parser.add_argument(
+        "--system",
+        choices=SYSTEMS,
+        default="agent",
+        help="agent: LLM extraction and the agent (default). b1: baseline B1, fixed rules, no LLM.",
+    )
+    parser.add_argument(
         "--run-id",
         default=None,
         help="Run id for the stored run record. Default: <project>-m<meeting>-<UTC time>.",
@@ -164,7 +189,7 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
         meeting, team = load_meeting(agent_inputs, args.meeting, transcript_file=args.transcript_file)
         tasks = load_tasks(args.tasks)
         clarifications = clarifications_from_file(args.clarifications) if args.clarifications else None
-        if client is None:
+        if client is None and args.system == "agent":
             client = ollama_client_from_env()
         if args.tasks is None:
             print("warning: no task list was passed; matching against an empty list", file=sys.stderr)
@@ -175,6 +200,7 @@ def main(argv: list[str] | None = None, *, client: LLMClient | None = None) -> i
             client,
             agent_inputs=agent_inputs,
             clarifications=clarifications,
+            system=args.system,
         )
     except ExtractionError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -196,7 +222,7 @@ def _main_with_store(args: argparse.Namespace, client: LLMClient | None) -> int:
     except (StoreError, ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    run_id = args.run_id or default_run_id(team.project_id, meeting.meeting_no)
+    run_id = args.run_id or default_run_id(team.project_id, meeting.meeting_no, args.system)
     started = time.monotonic()
     with store:
         try:
@@ -206,27 +232,30 @@ def _main_with_store(args: argparse.Namespace, client: LLMClient | None) -> int:
             return 1
         for note in notes:
             _progress(f"db: {note}")
-        _progress(f"db: {len(tasks)} current tasks, run {run_id}")
+        _progress(f"db: {len(tasks)} current tasks, run {run_id} ({args.system})")
         try:
-            if client is None:
+            if client is None and args.system == "agent":
                 client = ollama_client_from_env()
             with SqliteMemory(args.db, project_id=team.project_id, clarifications=clarifications) as reader:
-                preview = run_meeting(meeting, tasks, team, client, reader=reader)
+                preview = run_meeting(meeting, tasks, team, client, reader=reader, system=args.system)
         except ExtractionError as exc:
             record_failure(
                 store, run_id=run_id, meeting_no=meeting.meeting_no, stop_reason="extraction_failed",
-                detail=str(exc), seconds=time.monotonic() - started,
+                detail=str(exc), seconds=time.monotonic() - started, system=args.system,
+                raw_output=exc.last_output,
             )
             print(f"error: {exc}", file=sys.stderr)
             return 1
         except (RuntimeError, ValueError, OSError) as exc:
             record_failure(
                 store, run_id=run_id, meeting_no=meeting.meeting_no, stop_reason="error",
-                detail=f"{type(exc).__name__}: {exc}", seconds=time.monotonic() - started,
+                detail=f"{type(exc).__name__}: {exc}", seconds=time.monotonic() - started, system=args.system,
             )
             print(f"error: {exc}", file=sys.stderr)
             return 2 if isinstance(exc, RuntimeError) else 1
-        metrics = record_preview(store, preview, run_id=run_id, seconds=time.monotonic() - started)
+        metrics = record_preview(
+            store, preview, run_id=run_id, seconds=time.monotonic() - started, system=args.system
+        )
         _progress(
             f"db: stored {len(preview.decisions)} cases, {metrics['proposals']} proposals, "
             f"run record {run_id}"

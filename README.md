@@ -51,6 +51,9 @@ uv run python -m app.pipeline samples/demo --meeting 3 --tasks samples/demo/task
 
 # Same, with the project's SQLite database as memory and record
 uv run python -m app.pipeline samples/demo --meeting 3 --db data/demo/run1/memory.sqlite --tasks samples/demo/tasks_before_meeting_03.json
+
+# Baseline B1 (fixed rules, no LLM, no Ollama needed), stored the same way
+uv run python -m app.pipeline samples/demo --meeting 3 --system b1 --db data/demo/b1/memory.sqlite --tasks samples/demo/tasks_before_meeting_03.json
 ```
 
 The JSON preview goes to stdout (`--out` also writes it to a file). Progress
@@ -69,5 +72,6 @@ See [docs/review_and_commit.md](docs/review_and_commit.md).
 
 - [docs/storage.md](docs/storage.md): the append-only SQLite store, its rules, and `--db`
 - [docs/review_and_commit.md](docs/review_and_commit.md): validation checks, Rule 1 and Rule 2, the review list and commit
+- [docs/baseline_b1.md](docs/baseline_b1.md): baseline B1 (fixed rules, no LLM) and `--system b1`
 - [docs/demo_run.md](docs/demo_run.md): results on demo meetings 1–3 and what changed
 - [docs/model_selection.md](docs/model_selection.md): how the models were chosen
