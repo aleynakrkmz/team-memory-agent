@@ -84,6 +84,7 @@ def record_preview(
     run_id: str,
     seconds: float,
     system: str = "agent",
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Store cases, proposals and clarification questions, then a run record.
 
@@ -126,6 +127,8 @@ def record_preview(
         "proposal_ids": proposal_ids,
         "candidate_changes": [candidate.model_dump(mode="json") for candidate in preview.candidates],
     }
+    if extra:
+        metrics.update(extra)
     store.add_run_record(
         run_id=run_id,
         meeting_no=preview.meeting_no,
