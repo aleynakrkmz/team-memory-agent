@@ -249,6 +249,24 @@ class MemoryStore:
             raise StoreError(f"proposal {proposal_id} is not stored")
         return ProposedUpdate.model_validate_json(row["payload_json"])
 
+    def meeting_proposals(self, meeting_no: int) -> list[tuple[str, ProposedUpdate]]:
+        """Every stored proposal of one meeting, oldest first, as (proposal_id, proposal)."""
+        rows = self._con.execute(
+            "SELECT proposal_id, payload_json FROM proposals WHERE meeting_no = ? ORDER BY proposal_no",
+            (meeting_no,),
+        ).fetchall()
+        return [(row["proposal_id"], ProposedUpdate.model_validate_json(row["payload_json"])) for row in rows]
+
+    def pending_proposals(self, meeting_no: int) -> list[tuple[str, ProposedUpdate]]:
+        """Proposals of one meeting that have no review (approval or rejection) yet, oldest first."""
+        rows = self._con.execute(
+            "SELECT p.proposal_id, p.payload_json FROM proposals p "
+            "LEFT JOIN reviews r ON r.proposal_id = p.proposal_id "
+            "WHERE p.meeting_no = ? AND r.review_id IS NULL ORDER BY p.proposal_no",
+            (meeting_no,),
+        ).fetchall()
+        return [(row["proposal_id"], ProposedUpdate.model_validate_json(row["payload_json"])) for row in rows]
+
     def add_clarification_question(self, case_id: str, question: str, options: list[str] | None = None) -> str:
         """Record a question the agent handed to the controller. Returns Q1, Q2, ..."""
         self._writable()
@@ -283,6 +301,10 @@ class MemoryStore:
             (clarification_id,),
         ).fetchone()
         return dict(row) if row is not None else None
+
+    def clarification_ids(self) -> set[str]:
+        """Ids of every stored clarification answer (C01, C02, ...), the valid clarification evidence ids."""
+        return {row[0] for row in self._con.execute("SELECT clarification_id FROM clarification_answers")}
 
     def add_review(self, proposal_id: str, *, decision: str, reviewer: str, note: str | None = None) -> str:
         """Record an approval or rejection. Returns R1, R2, ..."""
@@ -395,6 +417,11 @@ class MemoryStore:
         return self._con.execute(
             "SELECT * FROM task_versions WHERE task_id = ? ORDER BY version DESC LIMIT 1", (task_id,)
         ).fetchone()
+
+    def version_for_approval(self, review_id: str) -> TaskRecord | None:
+        """The task version an approval already produced, or None if it is unused."""
+        row = self._con.execute("SELECT * FROM task_versions WHERE approval_id = ?", (review_id,)).fetchone()
+        return _task_record(row) if row is not None else None
 
     def current_tasks(self) -> list[TaskRecord]:
         """The task list: the latest version of every task, in task order."""

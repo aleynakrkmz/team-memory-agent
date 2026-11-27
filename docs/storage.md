@@ -107,3 +107,12 @@ with MemoryStore.open(path, project_id="demo") as store:
 
 `store.current_tasks()` returns the task list, `store.task_history("T4")`
 every version with its evidence refs.
+
+Read methods used by the review list and commit:
+
+| Method | Returns |
+|--------|---------|
+| `meeting_proposals(meeting_no)` | every proposal of a meeting, oldest first, as `(proposal_id, ProposedUpdate)` |
+| `pending_proposals(meeting_no)` | the same, only proposals with no review yet |
+| `clarification_ids()` | ids of all stored clarification answers (`C01`, ...) |
+| `version_for_approval(review_id)` | the task version an approval produced, or `None` if unused |
