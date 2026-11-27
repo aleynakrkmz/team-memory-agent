@@ -65,9 +65,22 @@ uv run python -m app.review data/demo/run1/memory.sqlite --meeting 3
 
 See [docs/review_and_commit.md](docs/review_and_commit.md).
 
+## Generating the data sets
+
+```bash
+# development set: generator A writes the meetings, a different model checks them (needs Ollama)
+uv run python datagen/generate.py --split dev --projects 7 --generator mistral-nemo:12b --checker llama3.1:8b
+
+# rewrite a generated set from its saved attempts after a cleaning fix (no model)
+uv run python datagen/generate.py --rebuild-from datagen/out/dev --out datagen/out/dev_rebuilt
+```
+
+Output goes to `datagen/out/` (not in git). See [docs/data_generation.md](docs/data_generation.md).
+
 ## Docs
 
 - [docs/storage.md](docs/storage.md): the append-only SQLite store, its rules, and `--db`
+- [docs/data_generation.md](docs/data_generation.md): how the development and test projects are generated, checked and frozen
 - [docs/review_and_commit.md](docs/review_and_commit.md): validation checks, Rule 1 and Rule 2, the review list and commit
 - [docs/demo_run.md](docs/demo_run.md): results on demo meetings 1–3 and what changed
 - [docs/model_selection.md](docs/model_selection.md): how the models were chosen
