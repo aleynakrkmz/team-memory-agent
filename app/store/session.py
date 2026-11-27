@@ -28,9 +28,10 @@ def open_or_create(path: Path, project_id: str) -> MemoryStore:
     return MemoryStore.create(path, project_id)
 
 
-def default_run_id(project_id: str, meeting_no: int) -> str:
+def default_run_id(project_id: str, meeting_no: int, system: str = "agent") -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return f"{project_id}-m{meeting_no}-{stamp}"
+    prefix = f"{project_id}-{system}" if system != "agent" else project_id
+    return f"{prefix}-m{meeting_no}-{stamp}"
 
 
 def prepare_meeting(
@@ -82,8 +83,13 @@ def record_preview(
     *,
     run_id: str,
     seconds: float,
+    system: str = "agent",
 ) -> dict[str, Any]:
-    """Store cases, proposals and clarification questions, then a run record."""
+    """Store cases, proposals and clarification questions, then a run record.
+
+    The run record's metrics name the system (agent or b1) and keep every
+    extracted candidate, including the ones that did not become a proposal.
+    """
     case_ids: dict[int, str] = {}
     for decision in preview.decisions:
         case_ids[decision.candidate_index] = store.add_case(
@@ -108,6 +114,7 @@ def record_preview(
             if answer and answer.casefold() != NO_ANSWER:
                 store.add_clarification_answer(question_id, answered_by="simulated coordinator", answer=answer)
     metrics = {
+        "system": system,
         "seconds": round(seconds, 2),
         "candidates": len(preview.candidates),
         "hard_cases": len(preview.agent_decisions),
@@ -117,6 +124,7 @@ def record_preview(
         "automatic_escalations": sum(1 for item in preview.agent_decisions if item.automatic),
         "clarification_questions": questions,
         "proposal_ids": proposal_ids,
+        "candidate_changes": [candidate.model_dump(mode="json") for candidate in preview.candidates],
     }
     store.add_run_record(
         run_id=run_id,
@@ -136,13 +144,19 @@ def record_failure(
     stop_reason: str,
     detail: str,
     seconds: float,
+    system: str = "agent",
+    raw_output: str | None = None,
 ) -> None:
+    """Store a failed run. `raw_output` keeps the model's last rejected reply, if any."""
+    metrics: dict[str, Any] = {"system": system, "seconds": round(seconds, 2)}
+    if raw_output:
+        metrics["last_model_output"] = raw_output
     store.add_run_record(
         run_id=run_id,
         meeting_no=meeting_no,
         stop_reason=stop_reason,
         failure_detail=detail,
-        metrics={"seconds": round(seconds, 2)},
+        metrics=metrics,
     )
 
 
