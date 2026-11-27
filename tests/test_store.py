@@ -300,3 +300,47 @@ def test_simulated_answers_match_the_demo_rule(db):
     with SqliteMemory(db, clarifications=answers) as memory:
         assert memory.simulated_answer("Which API task?", meeting_no=3) == "T4"
         assert memory.simulated_answer("Which API task?", meeting_no=2) == "no answer"
+
+
+# ----- review queries ------------------------------------------------------
+
+
+def test_meeting_and_pending_proposals(db):
+    with _demo_store(db, meetings=(1, 2)) as store:
+        first = store.add_proposal(_create_proposal(meeting_no=1))
+        second = store.add_proposal(_create_proposal(meeting_no=1, description="Schema", owner="Can", line="L4"))
+        other = store.add_proposal(_create_proposal(meeting_no=2, line="L3"))
+        assert [pid for pid, _ in store.meeting_proposals(1)] == [first, second]
+        assert store.meeting_proposals(1)[1][1].fields.description == "Schema"
+        assert [pid for pid, _ in store.meeting_proposals(2)] == [other]
+        store.add_review(first, decision="reject", reviewer="Zeynep")
+        assert [pid for pid, _ in store.pending_proposals(1)] == [second]
+        assert store.meeting_proposals(3) == [] and store.pending_proposals(3) == []
+
+
+def test_clarification_ids(db):
+    with _demo_store(db) as store:
+        assert store.clarification_ids() == set()
+        store.add_case(1, 0, RouteKind.hard, ["missing_owner"])
+        q1 = store.add_clarification_question("M1-K0", "Who owns it?")
+        store.add_clarification_question("M1-K0", "And the date?")
+        answer = store.add_clarification_answer(q1, answered_by="Zeynep", answer="Ayşe")
+        assert store.clarification_ids() == {answer}
+
+
+def test_version_for_approval(db):
+    with _demo_store(db) as store:
+        created = _commit_create(store, _create_proposal())
+        approval = store.task_history(created.task_id)[0]["approval_id"]
+        assert store.version_for_approval(approval) == created
+        unused = store.add_review(store.add_proposal(_create_proposal()), decision="approve", reviewer="Zeynep")
+        assert store.version_for_approval(unused) is None
+
+
+def test_review_queries_work_on_a_read_only_store(db):
+    with _demo_store(db) as store:
+        _commit_create(store, _create_proposal())
+    with MemoryStore.open(db, read_only=True) as store:
+        assert len(store.meeting_proposals(1)) == 1
+        assert store.pending_proposals(1) == []
+        assert store.version_for_approval("R1").task_id == "T1"

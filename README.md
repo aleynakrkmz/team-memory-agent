@@ -65,6 +65,7 @@ uv run python -m app.review data/demo/run1/memory.sqlite --meeting 3
 
 See [docs/review_and_commit.md](docs/review_and_commit.md).
 
+gozde/data-generation
 ## Generating the data sets
 
 ```bash
@@ -76,11 +77,26 @@ uv run python datagen/generate.py --rebuild-from datagen/out/dev --out datagen/o
 ```
 
 Output goes to `datagen/out/` (not in git). See [docs/data_generation.md](docs/data_generation.md).
+=======
+## Evaluating
+
+```bash
+# Run a configuration (agent or b1) on a project, in reset-to-gold or carry-forward mode, and score it
+uv run python eval/harness.py samples/demo --config agent --mode reset
+uv run python eval/compare.py runs/eval/*
+```
+
+See [docs/evaluation.md](docs/evaluation.md).
+ main
 
 ## Docs
 
 - [docs/storage.md](docs/storage.md): the append-only SQLite store, its rules, and `--db`
+gozde/data-generation
 - [docs/data_generation.md](docs/data_generation.md): how the development and test projects are generated, checked and frozen
+=======
+- [docs/evaluation.md](docs/evaluation.md): the harness, the scorer, B1, the modes and the run record
+ main
 - [docs/review_and_commit.md](docs/review_and_commit.md): validation checks, Rule 1 and Rule 2, the review list and commit
 - [docs/demo_run.md](docs/demo_run.md): results on demo meetings 1–3 and what changed
 - [docs/model_selection.md](docs/model_selection.md): how the models were chosen
