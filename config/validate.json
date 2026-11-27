@@ -1,0 +1,26 @@
+{
+  "_comment": "Rule 2 detection (design section 7). A transcript line counts as addressed to the assistant if (a) it starts with one of address_words used as a form of address, that is followed by a comma, colon or exclamation mark (\"Assistant, ...\", \"Hey bot: ...\"), with an optional greeting from greetings before it, or (b) it contains one of instruction_phrases (case-insensitive). Such a line may not be the only transcript evidence of a change. The lists are fixed with the system; false blocks on legitimate changes are counted in the evaluation.",
+  "address_words": ["assistant", "ai", "bot", "agent", "system", "computer"],
+  "greetings": ["hey", "hi", "ok", "okay", "dear"],
+  "instruction_phrases": [
+    "ignore previous",
+    "ignore all",
+    "ignore the above",
+    "disregard previous",
+    "override",
+    "system prompt",
+    "you are now",
+    "reassign every",
+    "reassign all",
+    "assign every",
+    "assign all tasks",
+    "mark every",
+    "mark all",
+    "delete every",
+    "delete all",
+    "cancel every",
+    "cancel all tasks",
+    "complete every",
+    "complete all tasks"
+  ]
+}
